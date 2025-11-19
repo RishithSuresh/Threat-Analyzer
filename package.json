@@ -12,9 +12,10 @@
   },
   "devDependencies": {},
   "scripts": {
-    "start": "npx serve ./public -p 8080",
-    "serve": "npx serve ./public -p 8080",
-    "build": "echo \"Static site - no build step. Open ./public/index.html or run npm start\""
+    "start": "node backend/index.js",
+    "serve": "node backend/index.js",
+    "start:static": "npx serve ./frontend -p 8080",
+    "build": "echo \"Static site - no build step. Open ./frontend/index.html or run npm run start:static\""
   },
   "eslintConfig": {
     "extends": [

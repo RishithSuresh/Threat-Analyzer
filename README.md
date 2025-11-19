@@ -330,3 +330,17 @@ For support or questions, contact the development team.
 **Version**: 1.0.0
 **Last Updated**: November 2025
 **Status**: Active Development
+
+---
+
+**Quick run (combined frontend + backend)**
+
+I added a small backend that serves the static frontend and provides APIs. See `README_RUN.md` for full instructions. Quick start:
+
+```powershell
+cd "d:\Programming\Threat Analyzer\backend"
+npm install
+cd ..
+npm start
+# open http://localhost:4000
+```
