@@ -5,13 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#1a2332" />
     <meta
-      name="description"
-      content="Threat Analyzer - Advanced Money Laundering Detection System"
-    />
-    <title>Threat Analyzer - Money Laundering Detection</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Threat Analyzer - Static</title>
+        <!-- Chart.js CDN -->
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <!-- vis-network CDN -->
+        <script src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js"></script>
+        <style>
+          /* Minimal reset + app styles (extracted and simplified from React CSS) */
+          *{box-sizing:border-box;margin:0;padding:0}
+          body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7fa;color:#333}
+          .app{display:flex;height:100vh}
+          .sidebar{width:260px;background:#0f1419;color:#fff;padding:20px;display:flex;flex-direction:column}
+          .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+          .brand h1{font-size:18px}
+          .nav{display:flex;flex-direction:column;gap:8px}
+          .nav button{background:none;border:none;color:rgba(255,255,255,0.9);padding:10px;text-align:left;border-radius:6px;cursor:pointer}
+          .nav button.active{background:rgba(0,212,255,0.08);color:#00d4ff}
+          .main{flex:1;padding:20px;overflow:auto}
+          .header h1{font-size:24px;margin-bottom:6px}
+          .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:16px 0}
+          .card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+          .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+          .table{width:100%;border-collapse:collapse}
+          .table th,.table td{padding:10px;border-bottom:1px solid #eee;text-align:left}
+          .network-container{height:520px;background:linear-gradient(135deg,#eef0f7,#f5f7fa);border-radius:12px}
+          @media(max-width:900px){.charts{grid-template-columns:1fr}.sidebar{display:none}}
+        </style>
   </body>
 </html>
