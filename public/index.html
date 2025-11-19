@@ -286,8 +286,87 @@
       ]);
       const container = document.getElementById('networkViz');
       const data = {nodes,edges};
-      const options = {nodes:{shape:'dot',scaling:{min:10,max:50},font:{size:12}},physics:{stabilization:true}};
-      new vis.Network(container,data,options);
+
+      // Create a clear, centered 'spider' layout by fixing positions in concentric rings
+      (function createSpiderLayout(){
+        const all = nodes.get();
+        if(all.length === 0) return;
+
+        // choose center node: node with max value (if present) otherwise first
+        let centerNode = all.reduce((a,b)=>((a.value||0) > (b.value||0) ? a : b), all[0]);
+        const centerId = centerNode.id;
+
+        // prepare other nodes
+        const others = all.filter(n=>n.id !== centerId);
+
+        // ring configuration (pixels). Adjust radii for clarity.
+        const rings = [160, 320, 480];
+
+        // distribute nodes into rings: fill first ring up to 8, second up to 16, rest into third
+        const ringBuckets = [[],[],[]];
+        others.forEach((n,i)=>{
+          if(i < 8) ringBuckets[0].push(n);
+          else if(i < 24) ringBuckets[1].push(n);
+          else ringBuckets[2].push(n);
+        });
+
+        // update center position at origin (vis uses coordinates in px)
+        nodes.update([{id:centerId,x:0,y:0,fixed:true}]);
+
+        // helper to place nodes evenly on a circle
+        function placeRing(bucket, radius){
+          const count = bucket.length;
+          for(let i=0;i<count;i++){
+            const angle = (2*Math.PI*i)/count;
+            const x = Math.round(radius * Math.cos(angle));
+            const y = Math.round(radius * Math.sin(angle));
+            nodes.update([{id: bucket[i].id, x, y, fixed: true}]);
+          }
+        }
+
+        placeRing(ringBuckets[0], rings[0]);
+        if(ringBuckets[1].length) placeRing(ringBuckets[1], rings[1]);
+        if(ringBuckets[2].length) placeRing(ringBuckets[2], rings[2]);
+      })();
+
+      const options = {
+        nodes: {
+          shape: 'dot',
+          scaling: {min:12, max:48},
+          font: {size:14}
+        },
+        edges: {
+          smooth: {enabled: true, type: 'curvedCW', roundness: 0.2},
+          color: {inherit:true}
+        },
+        physics: {enabled: false},
+        interaction: {hover: true, navigationButtons: true, keyboard: true, zoomView: true, dragView: true}
+      };
+
+      const network = new vis.Network(container, data, options);
+      // ensure full view of the spider
+      network.fit({animation:{duration:500}});
+
+      // Allow scrolling (mouse wheel) to pan the spider network vertically/horizontally.
+      // If user holds Ctrl while scrolling, allow default zoom behavior instead.
+      container.addEventListener('wheel', function(e){
+        // prevent page scroll when interacting with the network
+        if (e.ctrlKey) {
+          // allow browser/vis-network to handle ctrl+wheel (zoom)
+          return;
+        }
+        e.preventDefault();
+        // Small factor to make scrolling comfortable — adjust if needed
+        const factor = 1;
+        // Use moveTo with offset to pan view by wheel delta (in pixels)
+        // Reverse sign so wheel-down moves content up (natural scrolling feel)
+        try {
+          network.moveTo({offset: {x: -e.deltaX * factor, y: -e.deltaY * factor}});
+        } catch (err) {
+          // fallback: do nothing if moveTo fails
+          console.warn('Wheel pan failed', err);
+        }
+      }, {passive: false});
     </script>
   </body>
 </html>
