@@ -1,37 +1,209 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#1a2332" />
-    <meta
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Threat Analyzer - Static</title>
-        <!-- Chart.js CDN -->
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <!-- vis-network CDN -->
-        <script src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js"></script>
-        <style>
-          /* Minimal reset + app styles (extracted and simplified from React CSS) */
-          *{box-sizing:border-box;margin:0;padding:0}
-          body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7fa;color:#333}
-          .app{display:flex;height:100vh}
-          .sidebar{width:260px;background:#0f1419;color:#fff;padding:20px;display:flex;flex-direction:column}
-          .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
-          .brand h1{font-size:18px}
-          .nav{display:flex;flex-direction:column;gap:8px}
-          .nav button{background:none;border:none;color:rgba(255,255,255,0.9);padding:10px;text-align:left;border-radius:6px;cursor:pointer}
-          .nav button.active{background:rgba(0,212,255,0.08);color:#00d4ff}
-          .main{flex:1;padding:20px;overflow:auto}
-          .header h1{font-size:24px;margin-bottom:6px}
-          .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:16px 0}
-          .card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
-          .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-          .table{width:100%;border-collapse:collapse}
-          .table th,.table td{padding:10px;border-bottom:1px solid #eee;text-align:left}
-          .network-container{height:520px;background:linear-gradient(135deg,#eef0f7,#f5f7fa);border-radius:12px}
-          @media(max-width:900px){.charts{grid-template-columns:1fr}.sidebar{display:none}}
-        </style>
+    <title>Threat Analyzer - Static</title>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- vis-network CDN -->
+    <script src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js"></script>
+    <style>
+      /* Minimal reset + app styles (extracted and simplified from React CSS) */
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7fa;color:#333}
+      .app{display:flex;height:100vh}
+      .sidebar{width:260px;background:#0f1419;color:#fff;padding:20px;display:flex;flex-direction:column}
+      .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+      .brand h1{font-size:18px}
+      .nav{display:flex;flex-direction:column;gap:8px}
+      .nav button{background:none;border:none;color:rgba(255,255,255,0.9);padding:10px;text-align:left;border-radius:6px;cursor:pointer}
+      .nav button.active{background:rgba(0,212,255,0.08);color:#00d4ff}
+      .main{flex:1;padding:20px;overflow:auto}
+      .header h1{font-size:24px;margin-bottom:6px}
+      .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:16px 0}
+      .card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+      .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+      .table{width:100%;border-collapse:collapse}
+      .table th,.table td{padding:10px;border-bottom:1px solid #eee;text-align:left}
+      .network-container{height:520px;background:linear-gradient(135deg,#eef0f7,#f5f7fa);border-radius:12px}
+      @media(max-width:900px){.charts{grid-template-columns:1fr}.sidebar{display:none}}
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div style="width:40px;height:40px;border-radius:8px;background:#00d4ff"></div>
+          <h1>Threat Analyzer</h1>
+        </div>
+        <nav class="nav">
+          <button data-view="dashboard" class="active">Dashboard</button>
+          <button data-view="transactions">Transaction Monitor</button>
+          <button data-view="network">Network Analysis</button>
+          <button data-view="risk">Risk Profiling</button>
+          <button data-view="patterns">Pattern Analysis</button>
+        </nav>
+        <div style="margin-top:auto;font-size:12px;color:rgba(255,255,255,0.6)">v1.0.0 • System Active</div>
+      </aside>
+
+      <main class="main">
+        <!-- Dashboard -->
+        <section id="dashboard" class="view">
+          <div class="header"><h1>Threat Analyzer Dashboard</h1><p>Real-time Money Laundering Detection & Risk Assessment</p></div>
+          <div class="metrics">
+            <div class="card"><strong>Active Alerts</strong><div style="font-size:22px;margin-top:8px;color:#ff6b6b">24</div></div>
+            <div class="card"><strong>High-Risk Accounts</strong><div style="font-size:22px;margin-top:8px;color:#ffa500">8</div></div>
+            <div class="card"><strong>Flagged Transactions</strong><div style="font-size:22px;margin-top:8px;color:#9b59b6">156</div></div>
+            <div class="card"><strong>Monitored Accounts</strong><div style="font-size:22px;margin-top:8px;color:#3498db">342</div></div>
+          </div>
+
+          <div class="charts">
+            <div class="card">
+              <h3>Transaction Volume & Risk Trends</h3>
+              <canvas id="lineChart" height="200"></canvas>
+            </div>
+            <div class="card">
+              <h3>Risk Distribution</h3>
+              <canvas id="barChart" height="200"></canvas>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px">
+            <h3>Recent Alerts</h3>
+            <table class="table">
+              <thead><tr><th>Account</th><th>Message</th><th>Amount</th><th>Severity</th></tr></thead>
+              <tbody>
+                <tr><td>ACC-2024-001</td><td>Rapid fund transfer across jurisdictions</td><td>$125,000</td><td style="color:#ff6b6b">HIGH</td></tr>
+                <tr><td>ACC-2024-015</td><td>Multiple small transactions</td><td>$89,500</td><td style="color:#ffa500">MED</td></tr>
+                <tr><td>ACC-2024-042</td><td>Shell company payment detected</td><td>$245,000</td><td style="color:#ff6b6b">HIGH</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Transactions -->
+        <section id="transactions" class="view" style="display:none">
+          <div class="header"><h1>Transaction Monitoring System</h1><p>Real-time analysis of transactions</p></div>
+          <div class="card" style="margin-top:12px">
+            <h3>Transactions</h3>
+            <table class="table" id="txTable">
+              <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Risk</th><th>Status</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Network -->
+        <section id="network" class="view" style="display:none">
+          <div class="header"><h1>Network Analysis & Money Trail</h1><p>Interactive spider map showing transaction layers</p></div>
+          <div class="network-container card" style="margin-top:12px;padding:12px">
+            <div id="networkViz" style="width:100%;height:500px"></div>
+          </div>
+        </section>
+
+        <!-- Risk -->
+        <section id="risk" class="view" style="display:none">
+          <div class="header"><h1>Risk-Based Customer Profiling</h1><p>AI-powered risk assessment</p></div>
+          <div class="card" style="margin-top:12px">
+            <h3>Customer Profiles</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px">
+              <div class="card"><strong>John Doe</strong><div>Score: <span style="color:#ff6b6b">92</span></div></div>
+              <div class="card"><strong>Jane Smith</strong><div>Score: <span style="color:#ffa500">65</span></div></div>
+              <div class="card"><strong>Tech Corp Ltd</strong><div>Score: <span style="color:#4ade80">35</span></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Patterns -->
+        <section id="patterns" class="view" style="display:none">
+          <div class="header"><h1>Pattern Analysis & Behavioral Detection</h1><p>Identification of money laundering patterns</p></div>
+          <div class="card" style="margin-top:12px">
+            <h3>Detected Patterns</h3>
+            <table class="table">
+              <thead><tr><th>ID</th><th>Name</th><th>Severity</th><th>Confidence</th></tr></thead>
+              <tbody>
+                <tr><td>PAT-001</td><td>Structured Transaction</td><td style="color:#ff3333">CRITICAL</td><td>94%</td></tr>
+                <tr><td>PAT-002</td><td>Round-Tripping</td><td style="color:#ff6b6b">HIGH</td><td>87%</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      // Simple view navigation
+      document.querySelectorAll('.nav button').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          const view=btn.dataset.view;
+          document.querySelectorAll('.view').forEach(s=>s.style.display='none');
+          const el=document.getElementById(view);
+          if(el) el.style.display='block';
+        });
+      });
+
+      // Sample data for charts and table
+      const txData = [
+        {id:'TXN-001',date:'2025-01-07 14:32',from:'ACC-2024-001',to:'ACC-2024-045',amount:50000,risk:85,status:'FLAGGED'},
+        {id:'TXN-002',date:'2025-01-07 13:15',from:'ACC-2024-015',to:'ACC-2024-052',amount:9500,risk:72,status:'FLAGGED'},
+        {id:'TXN-003',date:'2025-01-07 11:45',from:'ACC-2024-042',to:'SHELL-2024-008',amount:245000,risk:92,status:'BLOCKED'},
+        {id:'TXN-004',date:'2025-01-07 10:20',from:'ACC-2024-089',to:'ACC-2024-090',amount:15000,risk:45,status:'NORMAL'},
+        {id:'TXN-005',date:'2025-01-07 09:10',from:'ACC-2024-120',to:'ACC-2024-121',amount:125000,risk:88,status:'FLAGGED'}
+      ];
+
+      const tbody = document.querySelector('#txTable tbody');
+      txData.forEach(t=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML = `<td>${t.id}</td><td>${t.date}</td><td>${t.from}</td><td>${t.to}</td><td>$${t.amount.toLocaleString()}</td><td>${t.risk}</td><td>${t.status}</td>`;
+        tbody.appendChild(tr);
+      });
+
+      // Chart.js Line chart
+      const lineCtx = document.getElementById('lineChart').getContext('2d');
+      new Chart(lineCtx,{
+        type:'line',
+        data:{labels:['2025-01-01','2025-01-02','2025-01-03','2025-01-04','2025-01-05','2025-01-06','2025-01-07'],datasets:[{label:'Volume',data:[45000,52000,48000,61000,55000,71000,63000],borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,0.08)',fill:true},{label:'Risk Score',data:[12,15,8,22,18,31,25],borderColor:'#ff6b6b',backgroundColor:'rgba(255,107,107,0.06)',fill:true}]},options:{responsive:true,plugins:{legend:{position:'top'}}}
+      });
+
+      // Chart.js Bar chart (risk distribution)
+      const barCtx = document.getElementById('barChart').getContext('2d');
+      new Chart(barCtx,{type:'bar',data:{labels:['Personal','Corporate','Shell Co.'],datasets:[{label:'High',data:[5,2,1],backgroundColor:'#ff6b6b'},{label:'Medium',data:[12,8,3],backgroundColor:'#ffa500'},{label:'Low',data:[35,24,8],backgroundColor:'#4ade80'}]},options:{responsive:true,plugins:{legend:{position:'top'}}}});
+
+      // vis-network setup
+      const nodes = new vis.DataSet([
+        {id:'ACC-001',label:'ACC-001\n(Primary)',value:500000,group:'high'},
+        {id:'ACC-045',label:'ACC-045',value:200000,group:'medium'},
+        {id:'ACC-052',label:'ACC-052\n(Receiver)',value:150000,group:'medium'},
+        {id:'SHELL-008',label:'SHELL-008\n(Offshore)',value:300000,group:'high'},
+        {id:'SHELL-015',label:'SHELL-015',value:250000,group:'high'},
+        {id:'ACC-089',label:'ACC-089\n(Mule-1)',value:75000,group:'medium'},
+        {id:'ACC-090',label:'ACC-090\n(Mule-2)',value:85000,group:'medium'},
+        {id:'PERSON-X',label:'Person X\n(Beneficial Owner)',value:0,group:'high'},
+        {id:'PERSON-Y',label:'Person Y\n(Accomplice)',value:0,group:'high'},
+        {id:'INT-SG-001',label:'INT-SG-001\n(Singapore)',value:180000,group:'high'},
+        {id:'INT-HK-002',label:'INT-HK-002\n(Hong Kong)',value:220000,group:'high'}
+      ]);
+      const edges = new vis.DataSet([
+        {from:'PERSON-X',to:'ACC-001',label:'$500,000'},
+        {from:'ACC-001',to:'SHELL-008',label:'$245,000'},
+        {from:'ACC-001',to:'SHELL-015',label:'$200,000'},
+        {from:'SHELL-008',to:'ACC-089',label:'$75,000'},
+        {from:'SHELL-008',to:'ACC-090',label:'$85,000'},
+        {from:'SHELL-015',to:'ACC-052',label:'$150,000'},
+        {from:'ACC-089',to:'INT-SG-001',label:'$50,000'},
+        {from:'ACC-090',to:'INT-HK-002',label:'$60,000'},
+        {from:'ACC-052',to:'INT-SG-001',label:'$80,000'},
+        {from:'INT-SG-001',to:'ACC-045',label:'$120,000'},
+        {from:'INT-HK-002',to:'ACC-045',label:'$140,000'},
+        {from:'ACC-045',to:'PERSON-Y',label:'$200,000'}
+      ]);
+      const container = document.getElementById('networkViz');
+      const data = {nodes,edges};
+      const options = {nodes:{shape:'dot',scaling:{min:10,max:50},font:{size:12}},physics:{stabilization:true}};
+      new vis.Network(container,data,options);
+    </script>
   </body>
 </html>
