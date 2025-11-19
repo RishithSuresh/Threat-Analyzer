@@ -145,32 +145,116 @@
         });
       });
 
-      // Sample data for charts and table
-      const txData = [
-        {id:'TXN-001',date:'2025-01-07 14:32',from:'ACC-2024-001',to:'ACC-2024-045',amount:50000,risk:85,status:'FLAGGED'},
-        {id:'TXN-002',date:'2025-01-07 13:15',from:'ACC-2024-015',to:'ACC-2024-052',amount:9500,risk:72,status:'FLAGGED'},
-        {id:'TXN-003',date:'2025-01-07 11:45',from:'ACC-2024-042',to:'SHELL-2024-008',amount:245000,risk:92,status:'BLOCKED'},
-        {id:'TXN-004',date:'2025-01-07 10:20',from:'ACC-2024-089',to:'ACC-2024-090',amount:15000,risk:45,status:'NORMAL'},
-        {id:'TXN-005',date:'2025-01-07 09:10',from:'ACC-2024-120',to:'ACC-2024-121',amount:125000,risk:88,status:'FLAGGED'}
+      // Default fallback sample data (used only if CSV not available)
+      let txData = [
+        {id:'TXN-001',date:'2025-01-07 14:32',from_account:'ACC-2024-001',to_account:'ACC-2024-045',amount:50000,risk:85,status:'FLAGGED'},
+        {id:'TXN-002',date:'2025-01-07 13:15',from_account:'ACC-2024-015',to_account:'ACC-2024-052',amount:9500,risk:72,status:'FLAGGED'},
+        {id:'TXN-003',date:'2025-01-07 11:45',from_account:'ACC-2024-042',to_account:'SHELL-2024-008',amount:245000,risk:92,status:'BLOCKED'},
+        {id:'TXN-004',date:'2025-01-07 10:20',from_account:'ACC-2024-089',to_account:'ACC-2024-090',amount:15000,risk:45,status:'NORMAL'},
+        {id:'TXN-005',date:'2025-01-07 09:10',from_account:'ACC-2024-120',to_account:'ACC-2024-121',amount:125000,risk:88,status:'FLAGGED'}
       ];
 
       const tbody = document.querySelector('#txTable tbody');
-      txData.forEach(t=>{
-        const tr=document.createElement('tr');
-        tr.innerHTML = `<td>${t.id}</td><td>${t.date}</td><td>${t.from}</td><td>${t.to}</td><td>$${t.amount.toLocaleString()}</td><td>${t.risk}</td><td>${t.status}</td>`;
-        tbody.appendChild(tr);
-      });
 
-      // Chart.js Line chart
+      function clearTable(){ tbody.innerHTML = ''; }
+      function populateTable(data){
+        clearTable();
+        data.forEach(t=>{
+          const tr=document.createElement('tr');
+          tr.innerHTML = `<td>${t.id||''}</td><td>${t.date||''}</td><td>${t.from_account||t.from||''}</td><td>${t.to_account||t.to||''}</td><td>$${(Number(t.amount)||0).toLocaleString()}</td><td>${t.risk||''}</td><td>${t.status||''}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Chart placeholders (will be created once DOM and Chart.js are ready)
       const lineCtx = document.getElementById('lineChart').getContext('2d');
-      new Chart(lineCtx,{
+      const barCtx = document.getElementById('barChart').getContext('2d');
+
+      // Create empty charts; we'll populate them after data load
+      const lineChart = new Chart(lineCtx,{
         type:'line',
-        data:{labels:['2025-01-01','2025-01-02','2025-01-03','2025-01-04','2025-01-05','2025-01-06','2025-01-07'],datasets:[{label:'Volume',data:[45000,52000,48000,61000,55000,71000,63000],borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,0.08)',fill:true},{label:'Risk Score',data:[12,15,8,22,18,31,25],borderColor:'#ff6b6b',backgroundColor:'rgba(255,107,107,0.06)',fill:true}]},options:{responsive:true,plugins:{legend:{position:'top'}}}
+        data:{labels:[],datasets:[{label:'Volume',data:[],borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,0.08)',fill:true},{label:'Risk Score',data:[],borderColor:'#ff6b6b',backgroundColor:'rgba(255,107,107,0.06)',fill:true}]},
+        options:{responsive:true,plugins:{legend:{position:'top'}}}
       });
 
-      // Chart.js Bar chart (risk distribution)
-      const barCtx = document.getElementById('barChart').getContext('2d');
-      new Chart(barCtx,{type:'bar',data:{labels:['Personal','Corporate','Shell Co.'],datasets:[{label:'High',data:[5,2,1],backgroundColor:'#ff6b6b'},{label:'Medium',data:[12,8,3],backgroundColor:'#ffa500'},{label:'Low',data:[35,24,8],backgroundColor:'#4ade80'}]},options:{responsive:true,plugins:{legend:{position:'top'}}}});
+      const barChart = new Chart(barCtx,{type:'bar',data:{labels:['High','Medium','Low'],datasets:[{label:'Count',data:[0,0,0],backgroundColor:['#ff6b6b','#ffa500','#4ade80']}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+
+      // CSV parse helper (simple but handles quoted fields)
+      function parseCSV(text){
+        const rows = [];
+        const lines = text.split(/\r?\n/).filter(l=>l.trim()!=='');
+        if(lines.length===0) return rows;
+        const headers = lines[0].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(h=>h.replace(/^"|"$/g, '').trim());
+        for(let i=1;i<lines.length;i++){
+          const cols = lines[i].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c=>c.replace(/^"|"$/g, '').trim());
+          if(cols.length===0) continue;
+          const obj = {};
+          for(let j=0;j<headers.length;j++){ obj[headers[j]] = cols[j]===undefined? '': cols[j]; }
+          rows.push(obj);
+        }
+        return rows;
+      }
+
+      function aggregateForLineChart(data){
+        // aggregate amount by date and average risk
+        const byDate = {};
+        data.forEach(r=>{
+          const d = (r.date||'').split(' ')[0];
+          const amount = Number(r.amount||r.Amount||0);
+          const risk = Number(r.risk||r.Risk||0);
+          if(!byDate[d]) byDate[d] = {amount:0,riskSum:0,count:0};
+          byDate[d].amount += amount;
+          byDate[d].riskSum += risk;
+          byDate[d].count += 1;
+        });
+        const labels = Object.keys(byDate).sort();
+        const amounts = labels.map(d=>byDate[d].amount);
+        const avgRisk = labels.map(d=> Math.round(byDate[d].riskSum / Math.max(1, byDate[d].count)) );
+        return {labels,amounts,avgRisk};
+      }
+
+      function updateCharts(data){
+        const agg = aggregateForLineChart(data);
+        lineChart.data.labels = agg.labels;
+        lineChart.data.datasets[0].data = agg.amounts;
+        lineChart.data.datasets[1].data = agg.avgRisk;
+        lineChart.update();
+
+        // risk distribution by bucket
+        let high=0,med=0,low=0;
+        data.forEach(r=>{
+          const risk = Number(r.risk||r.Risk||0);
+          if(risk>=75) high++; else if(risk>=40) med++; else low++;
+        });
+        barChart.data.datasets[0].data = [high,med,low];
+        barChart.update();
+      }
+
+      // Try to load CSV from public/data/detailed_transaction_data.csv
+      fetch('./data/detailed_transaction_data.csv').then(resp=>{
+        if(!resp.ok) throw new Error('no csv');
+        return resp.text();
+      }).then(text=>{
+        const rows = parseCSV(text);
+        if(rows.length>0){
+          // map CSV headers to internal shape if needed
+          txData = rows.map(r=>({
+            id: r.id || r.ID || '',
+            date: r.date || r.Date || '',
+            from_account: r.from_account || r.From || r.from || '',
+            to_account: r.to_account || r.To || r.to || '',
+            amount: Number(r.amount || r.Amount || 0),
+            risk: Number(r.risk || r.Risk || 0),
+            status: r.status || r.Status || ''
+          }));
+        }
+        populateTable(txData);
+        updateCharts(txData);
+      }).catch(err=>{
+        // fallback to mock data
+        populateTable(txData);
+        updateCharts(txData);
+      });
 
       // vis-network setup
       const nodes = new vis.DataSet([
