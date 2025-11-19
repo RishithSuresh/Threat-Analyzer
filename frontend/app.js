@@ -76,6 +76,22 @@ function populateCharts(data){
       window.lineChart.data.datasets[1].data = agg.avgRisk;
       window.lineChart.update();
     }
+    // also update dashboard bar chart to show risk distribution
+    try{
+      const counts = { low:0, medium:0, high:0 };
+      data.forEach(r=>{
+        const risk = Number(r.risk||r.Risk||0);
+        if(risk >= 80) counts.high += 1;
+        else if(risk >= 60) counts.medium += 1;
+        else counts.low += 1;
+      });
+      if(window.barChart){
+        window.barChart.data.labels = ['Low','Medium','High'];
+        window.barChart.data.datasets[0].data = [counts.low, counts.medium, counts.high];
+        window.barChart.data.datasets[0].backgroundColor = ['#4ade80','#ffa500','#ff6b6b'];
+        window.barChart.update();
+      }
+    }catch(e){ console.warn('update risk bar failed', e); }
   }catch(e){ console.warn(e); }
 }
 
