@@ -115,6 +115,19 @@
           <div class="header"><h1>Risk-Based Customer Profiling</h1><p>AI-powered risk assessment</p></div>
           <div class="card" style="margin-top:12px">
             <h3>Customer Profiles</h3>
+            <div class="risk-controls" style="display:flex;gap:10px;align-items:center;margin-top:10px">
+              <input id="riskSearch" placeholder="Search account or ID..." style="flex:1;padding:8px;border-radius:8px;border:1px solid #e6e9ee;font-size:14px">
+              <select id="riskSort" style="padding:8px;border-radius:8px;border:1px solid #e6e9ee;font-size:14px">
+                <option value="volume">Sort: Volume</option>
+                <option value="risk">Sort: Avg Risk</option>
+                <option value="tx">Sort: Tx Count</option>
+              </select>
+              <select id="riskPageSize" style="padding:8px;border-radius:8px;border:1px solid #e6e9ee;font-size:14px">
+                <option value="12">12 / page</option>
+                <option value="24">24 / page</option>
+                <option value="48">48 / page</option>
+              </select>
+            </div>
             <div id="riskProfiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px">
               <!-- Risk profile cards injected here -->
             </div>
@@ -137,6 +150,7 @@
       </main>
     </div>
 
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <script src="app.js" defer></script>
   </body>
 </html>

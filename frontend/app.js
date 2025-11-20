@@ -318,9 +318,23 @@ async function fetchRiskProfiles(){
     const profiles = await res.json();
     const container = document.getElementById('riskProfiles');
     container.innerHTML = '';
-    // pagination / lazy render: show in pages of 12
-    const pageSize = 12;
+    // pagination / lazy render; defaults
+    let pageSize = 12;
     let page = 0;
+    let query = '';
+    let sortBy = 'volume';
+    let filtered = profiles;
+
+    // wire controls
+    const searchEl = document.getElementById('riskSearch');
+    const sortEl = document.getElementById('riskSort');
+    const pageSizeEl = document.getElementById('riskPageSize');
+    if(searchEl) searchEl.value = '';
+    if(sortEl) sortEl.value = 'volume';
+    if(pageSizeEl) pageSizeEl.value = '12';
+    if(pageSizeEl) pageSizeEl.addEventListener('change', ()=>{ pageSize = Number(pageSizeEl.value||12); page = 0; renderPage(true); });
+    if(sortEl) sortEl.addEventListener('change', ()=>{ sortBy = sortEl.value || 'volume'; page = 0; renderPage(true); });
+    if(searchEl) searchEl.addEventListener('input', (ev)=>{ query = ev.target.value.trim().toLowerCase(); page = 0; renderPage(true); });
 
     function createSparkline(values, w=120, h=28){
       if(!values || values.length===0) return '';
@@ -338,18 +352,37 @@ async function fetchRiskProfiles(){
       return svg;
     }
 
-    function renderPage(){
+    function applyFilters(){
+      // filter by query
+      filtered = profiles.filter(p=>{
+        if(!query) return true;
+        return (p.account||'').toString().toLowerCase().includes(query) || (p.account||'').toString().toLowerCase().includes(query);
+      });
+      // sort
+      filtered.sort((a,b)=>{
+        if(sortBy === 'risk') return (b.avgRisk||0) - (a.avgRisk||0);
+        if(sortBy === 'tx') return (b.txCount||0) - (a.txCount||0);
+        // default: volume
+        return (b.totalVolume||0) - (a.totalVolume||0);
+      });
+    }
+
+    function renderPage(reset){
+      applyFilters();
+      if(reset){ container.innerHTML = ''; }
       const fragment = document.createDocumentFragment();
       const start = page * pageSize;
-      const slice = profiles.slice(start, start + pageSize);
+      const slice = filtered.slice(start, start + pageSize);
       slice.forEach(p=>{
         const card = document.createElement('div'); card.className='card risk-card';
-        const riskColor = p.avgRisk>=80 ? '#ff6b6b' : p.avgRisk>=60 ? '#ffa500' : '#4ade80';
+        const riskColor = p.avgRisk>=80 ? 'var(--danger)' : p.avgRisk>=60 ? 'var(--warn)' : 'var(--good)';
         const lastTx = p.lastTx ? (new Date(p.lastTx)).toLocaleString() : 'N/A';
         const flagged = p.flaggedCount || 0;
         const spark = createSparkline(p.recentAmounts || []);
+        // avatar initials
+        const initials = (p.account||'').toString().replace(/[^A-Za-z0-9]/g,'').slice(0,4).toUpperCase();
         card.innerHTML = `
-          <div class="risk-card-header"><strong class="acct">${p.account}</strong><div class="actions"><button class="view-btn" data-account="${p.account}">View</button></div></div>
+          <div class="risk-card-header"><div class="acct-row"><div class="avatar">${initials}</div><strong class="acct">${p.account}</strong></div><div class="actions"><button class="view-btn" data-account="${p.account}">View</button></div></div>
           <div class="risk-card-body">
             <div class="meta">Tx: <strong>${p.txCount}</strong> • Volume: <strong>$${Number(p.totalVolume).toLocaleString()}</strong></div>
             <div class="metrics"><div class="avg-risk" title="Average risk"><span style="color:${riskColor};font-weight:700;font-size:16px">${p.avgRisk}</span></div><div class="flags" title="Flagged transactions">⚑ ${flagged}</div><div class="lasttx" title="Last transaction">${lastTx}</div></div>
@@ -361,7 +394,7 @@ async function fetchRiskProfiles(){
       // add or replace load-more control
       let loadMore = document.getElementById('risk-load-more');
       if(!loadMore){ loadMore = document.createElement('div'); loadMore.id='risk-load-more'; loadMore.style.textAlign='center'; loadMore.style.marginTop='12px'; }
-      loadMore.innerHTML = (start + pageSize) < profiles.length ? `<button id="loadMoreBtn">Load more</button>` : '';
+      loadMore.innerHTML = (start + pageSize) < filtered.length ? `<button id="loadMoreBtn">Load more</button>` : '';
       container.appendChild(fragment);
       if(loadMore.innerHTML) container.appendChild(loadMore);
 
@@ -369,12 +402,11 @@ async function fetchRiskProfiles(){
       document.querySelectorAll('.view-btn').forEach(b=> b.addEventListener('click', (ev)=>{ const acct = ev.currentTarget.getAttribute('data-account'); highlightAccountsInNetwork([acct]); document.getElementById('nodeDetailsContent').innerHTML = `<strong>${acct}</strong><div style="margin-top:6px">Loading transactions...</div>`; fetch(`/api/transactions?account=${encodeURIComponent(acct)}`).then(r=>r.json()).then(rows=>{ const html = ['<div style="margin-top:8px"><strong>Recent Transactions</strong><div style="max-height:240px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th>ID</th><th>Date</th><th style="text-align:right">Amount</th><th>Risk</th></tr></thead><tbody>']; rows.slice(0,50).forEach(rw=> html.push(`<tr><td>${rw.id||''}</td><td>${rw.date||''}</td><td style="text-align:right">$${(Number(rw.amount)||0).toLocaleString()}</td><td>${rw.risk||''}</td></tr>`)); html.push('</tbody></table></div></div>'); document.getElementById('nodeDetailsContent').innerHTML = html.join(''); }).catch(()=>{ document.getElementById('nodeDetailsContent').innerHTML = '<div>Could not load transactions</div>'; }); }));
 
       const btn = document.getElementById('loadMoreBtn');
-      if(btn){ btn.addEventListener('click', ()=>{ page++; // remove loadMore and render next page
-        const lm = document.getElementById('risk-load-more'); if(lm) lm.remove(); renderPage(); }); }
+      if(btn){ btn.addEventListener('click', ()=>{ page++; const lm = document.getElementById('risk-load-more'); if(lm) lm.remove(); renderPage(); }); }
     }
 
     // initial page render
-    renderPage();
+    renderPage(true);
   }catch(e){ console.warn('risk profiles', e); }
 }
 

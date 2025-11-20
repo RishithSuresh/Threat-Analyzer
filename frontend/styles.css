@@ -1,6 +1,18 @@
 /* Minimal reset + app styles (extracted and simplified from React CSS) */
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7fa;color:#333}
+.app, body, .main { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+
+:root{
+	--bg:#f5f7fa;
+	--card:#ffffff;
+	--muted:#666b73;
+	--accent:#00d4ff;
+	--danger:#ff6b6b;
+	--warn:#ffa500;
+	--good:#4ade80;
+	--glass: rgba(255,255,255,0.7);
+}
 .app{display:flex;height:100vh}
 .sidebar{width:260px;background:#0f1419;color:#fff;padding:20px;display:flex;flex-direction:column}
 .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
@@ -11,7 +23,8 @@ body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7f
 .main{flex:1;padding:20px;overflow:auto}
 .header h1{font-size:24px;margin-bottom:6px}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:16px 0}
-.card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(18,22,31,0.06);transition:transform .18s ease,box-shadow .18s ease}
+.card:hover{transform:translateY(-6px);box-shadow:0 14px 30px rgba(18,22,31,0.08)}
 .risk-card{display:flex;flex-direction:column;gap:8px;padding:12px}
 .risk-card .risk-card-header{display:flex;justify-content:space-between;align-items:center}
 .risk-card .acct{font-size:16px}
@@ -21,6 +34,13 @@ body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7f
 .risk-card .metrics .avg-risk{font-size:18px}
 .risk-card .metrics .flags{color:#ff6b6b}
 .risk-card .sparkline{margin-top:6px}
+
+.risk-card .avatar{width:44px;height:44px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--accent),#9b59b6);color:#fff;font-weight:700;margin-right:10px}
+.risk-card .risk-card-header .acct-row{display:flex;align-items:center;gap:8px}
+.risk-controls input, .risk-controls select{background:var(--card)}
+.risk-card .meta strong{font-weight:600}
+.view-btn{background:transparent;border:1px solid rgba(0,0,0,0.06);padding:6px 8px;border-radius:8px;cursor:pointer}
+.view-btn:hover{background:var(--glass)}
 .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .table{width:100%;border-collapse:collapse}
 .table th,.table td{padding:10px;border-bottom:1px solid #eee;text-align:left}
