@@ -1,12 +1,14 @@
-// Simple view navigation
+// Unified navigation: switch view, set active, and refresh data
 document.querySelectorAll('.nav button').forEach(btn=>{
-  btn.addEventListener('click',()=>{
+  btn.addEventListener('click', ()=>{
     document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
-    const view=btn.dataset.view;
+    const view = btn.dataset.view;
     document.querySelectorAll('.view').forEach(s=>s.style.display='none');
-    const el=document.getElementById(view);
+    const el = document.getElementById(view);
     if(el) el.style.display='block';
+    console.log('[NAV] Switched to view:', view);
+    setTimeout(()=> refreshView(view), 100);
   });
 });
 
@@ -47,69 +49,9 @@ function populateTable(data){
   tbody.innerHTML = '';
   data.forEach(t=>{
     const tr=document.createElement('tr');
-    tr.innerHTML = `<td>${t.id||t.id}</td><td>${t.date||t.date}</td><td>${t.from_account||t.from||t.from_account||''}</td><td>${t.to_account||t.to||t.to_account||''}</td><td>$${(Number(t.amount)||0).toLocaleString()}</td><td>${t.risk||t.Risk||''}</td><td>${t.status||''}</td>`;
+    tr.innerHTML = `<td>${t.id||''}</td><td>${t.date||''}</td><td>${t.from_account||t.from||''}</td><td>${t.to_account||t.to||''}</td><td>$${(Number(t.amount)||0).toLocaleString()}</td><td>${t.risk||''}</td><td>${t.status||''}</td>`;
     tbody.appendChild(tr);
   });
-}
-
-function parseCSV(text){
-  const rows = [];
-  const lines = text.split(/\r?\n/).filter(l=>l.trim()!=='');
-  if(lines.length===0) return rows;
-  const headers = lines[0].split(/,(?=(?:[^"]*"[^"]*")*[^\"]*$)/).map(h=>h.replace(/^"|"$/g,'').trim());
-  for(let i=1;i<lines.length;i++){
-    const cols = lines[i].split(/,(?=(?:[^"]*"[^"]*")*[^\"]*$)/).map(c=>c.replace(/^"|"$/g,'').trim());
-    const obj={};
-    for(let j=0;j<headers.length;j++) obj[headers[j]] = cols[j] || '';
-    rows.push(obj);
-  }
-  return rows;
-}
-
-function populateCharts(data){
-  // simple line chart using date aggregation
-  try{
-    const agg = aggregateForLineChart(data);
-    if(window.lineChart){
-      window.lineChart.data.labels = agg.labels;
-      window.lineChart.data.datasets[0].data = agg.amounts;
-      window.lineChart.data.datasets[1].data = agg.avgRisk;
-      window.lineChart.update();
-    }
-    // also update dashboard bar chart to show risk distribution
-    try{
-      const counts = { low:0, medium:0, high:0 };
-      data.forEach(r=>{
-        const risk = Number(r.risk||r.Risk||0);
-        if(risk >= 80) counts.high += 1;
-        else if(risk >= 60) counts.medium += 1;
-        else counts.low += 1;
-      });
-      if(window.barChart){
-        window.barChart.data.labels = ['Low','Medium','High'];
-        window.barChart.data.datasets[0].data = [counts.low, counts.medium, counts.high];
-        window.barChart.data.datasets[0].backgroundColor = ['#4ade80','#ffa500','#ff6b6b'];
-        window.barChart.update();
-      }
-    }catch(e){ console.warn('update risk bar failed', e); }
-  }catch(e){ console.warn(e); }
-}
-
-function aggregateForLineChart(data){
-  const byDate = {};
-  data.forEach(r=>{
-    const d = (r.date||'').split(' ')[0];
-    const amount = Number(r.amount||r.Amount||0);
-    const risk = Number(r.risk||r.Risk||0);
-    if(!byDate[d]) byDate[d] = {amount:0,riskSum:0,count:0};
-    byDate[d].amount += amount;
-    byDate[d].riskSum += risk;
-    byDate[d].count += 1;
-  });
-  const labels = Object.keys(byDate).sort();
-  const amounts = labels.map(d=>byDate[d].amount);
-  const avgRisk = labels.map(d=> Math.round(byDate[d].riskSum / Math.max(1, byDate[d].count)) );
-  return {labels,amounts,avgRisk};
 }
 
 // Chart initialization
@@ -254,14 +196,7 @@ async function fetchPatterns(){
   }catch(e){ console.warn('patterns', e); }
 }
 
-// enhance nav buttons to refresh view on click
-document.querySelectorAll('.nav button').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    const view = btn.dataset.view;
-    // small timeout to allow DOM display switch then refresh
-    setTimeout(()=> refreshView(view), 150);
-  });
-});
+// (removed duplicate nav handler)
 
 // initial fetches
 document.addEventListener('DOMContentLoaded', ()=>{

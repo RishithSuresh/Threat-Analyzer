@@ -75,9 +75,49 @@ app.get('/api/network', (req, res) => {
 app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const content = req.file.buffer.toString('utf8');
-  parseCSVContent(content).then(data=>{
-    // Save uploaded CSV to disk as current dataset
-    try{ fs.writeFileSync(currentDataPath, content, 'utf8'); }catch(e){ console.warn('Could not persist dataset', e); }
+  parseCSVContent(content).then(rawData=>{
+    // --- Column mapping ---
+    // Try to map columns to: id, date, from_account, to_account, amount, risk, status
+    const headerMap = {};
+    const sample = rawData[0] || {};
+    const lowerKeys = Object.keys(sample).map(k=>k.toLowerCase());
+    function findCol(possibles){
+      for(const p of possibles){
+        const idx = lowerKeys.findIndex(k=>k.includes(p));
+        if(idx!==-1) return Object.keys(sample)[idx];
+      }
+      return null;
+    }
+    const map = {
+      id: findCol(['id','txn','tx','transaction']),
+      date: findCol(['date','time','timestamp']),
+      from_account: findCol(['from','sender','source','debit']),
+      to_account: findCol(['to','receiver','dest','credit']),
+      amount: findCol(['amount','value','amt','sum']),
+      risk: findCol(['risk','score','threat']),
+      status: findCol(['status','flag','block'])
+    };
+    // Check for missing required columns
+    const missing = Object.entries(map).filter(([k,v])=>!v).map(([k])=>k);
+    if(missing.length){
+      return res.status(400).json({ error: `Missing required column(s): ${missing.join(', ')}` });
+    }
+    // Normalize all rows
+    const data = rawData.map(row=>({
+      id: row[map.id] || '',
+      date: row[map.date] || '',
+      from_account: row[map.from_account] || '',
+      to_account: row[map.to_account] || '',
+      amount: row[map.amount] || '',
+      risk: row[map.risk] || '',
+      status: row[map.status] || ''
+    }));
+    // Save normalized CSV to disk as current dataset
+    try{
+      const csvHeader = 'id,date,from_account,to_account,amount,risk,status\n';
+      const csvRows = data.map(r=>[r.id,r.date,r.from_account,r.to_account,r.amount,r.risk,r.status].join(','));
+      fs.writeFileSync(currentDataPath, csvHeader+csvRows.join('\n'), 'utf8');
+    }catch(e){ console.warn('Could not persist dataset', e); }
     currentRows = data;
 
     // basic analysis
@@ -86,15 +126,15 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     const accounts = new Map();
     const edges = [];
     data.forEach(r=>{
-      const amount = Number(r.amount || r.Amount || 0);
-      const risk = Number(r.risk || r.Risk || 0);
+      const amount = Number(r.amount || 0);
+      const risk = Number(r.risk || 0);
       analysis.totalVolume += amount;
       riskSum += risk;
       if(risk >= 80) analysis.riskCounts.high += 1;
       else if(risk >= 60) analysis.riskCounts.medium += 1;
       else analysis.riskCounts.low += 1;
-      const from = r.from_account || r.from || r.From;
-      const to = r.to_account || r.to || r.To;
+      const from = r.from_account;
+      const to = r.to_account;
       if(from){ if(!accounts.has(from)) accounts.set(from, { id: from, label: from, value: 0, group: 'account' }); accounts.get(from).value += amount; }
       if(to){ if(!accounts.has(to)) accounts.set(to, { id: to, label: to, value: 0, group: 'account' }); accounts.get(to).value += amount; }
       if(from && to) edges.push({ from, to, label: `$${amount.toLocaleString()}` });
