@@ -318,11 +318,63 @@ async function fetchRiskProfiles(){
     const profiles = await res.json();
     const container = document.getElementById('riskProfiles');
     container.innerHTML = '';
-    profiles.slice(0,12).forEach(p=>{
-      const card = document.createElement('div'); card.className='card';
-      card.innerHTML = `<strong>${p.account}</strong><div>Tx: ${p.txCount} • Volume: $${Number(p.totalVolume).toLocaleString()} • Avg Risk: <span style="color:${p.avgRisk>=80?'#ff6b6b':p.avgRisk>=60?'#ffa500':'#4ade80'}">${p.avgRisk}</span></div>`;
-      container.appendChild(card);
-    });
+    // pagination / lazy render: show in pages of 12
+    const pageSize = 12;
+    let page = 0;
+
+    function createSparkline(values, w=120, h=28){
+      if(!values || values.length===0) return '';
+      const max = Math.max(...values);
+      const min = Math.min(...values);
+      const range = Math.max(1, max - min);
+      const step = w / Math.max(1, values.length - 1);
+      let path = '';
+      values.forEach((v,i)=>{
+        const x = i * step;
+        const y = h - ((v - min) / range) * h;
+        path += (i===0?`M ${x} ${y}`:` L ${x} ${y}`);
+      });
+      const svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><path d="${path}" fill="none" stroke="#9b59b6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+      return svg;
+    }
+
+    function renderPage(){
+      const fragment = document.createDocumentFragment();
+      const start = page * pageSize;
+      const slice = profiles.slice(start, start + pageSize);
+      slice.forEach(p=>{
+        const card = document.createElement('div'); card.className='card risk-card';
+        const riskColor = p.avgRisk>=80 ? '#ff6b6b' : p.avgRisk>=60 ? '#ffa500' : '#4ade80';
+        const lastTx = p.lastTx ? (new Date(p.lastTx)).toLocaleString() : 'N/A';
+        const flagged = p.flaggedCount || 0;
+        const spark = createSparkline(p.recentAmounts || []);
+        card.innerHTML = `
+          <div class="risk-card-header"><strong class="acct">${p.account}</strong><div class="actions"><button class="view-btn" data-account="${p.account}">View</button></div></div>
+          <div class="risk-card-body">
+            <div class="meta">Tx: <strong>${p.txCount}</strong> • Volume: <strong>$${Number(p.totalVolume).toLocaleString()}</strong></div>
+            <div class="metrics"><div class="avg-risk" title="Average risk"><span style="color:${riskColor};font-weight:700;font-size:16px">${p.avgRisk}</span></div><div class="flags" title="Flagged transactions">⚑ ${flagged}</div><div class="lasttx" title="Last transaction">${lastTx}</div></div>
+            <div class="sparkline">${spark}</div>
+          </div>
+        `;
+        fragment.appendChild(card);
+      });
+      // add or replace load-more control
+      let loadMore = document.getElementById('risk-load-more');
+      if(!loadMore){ loadMore = document.createElement('div'); loadMore.id='risk-load-more'; loadMore.style.textAlign='center'; loadMore.style.marginTop='12px'; }
+      loadMore.innerHTML = (start + pageSize) < profiles.length ? `<button id="loadMoreBtn">Load more</button>` : '';
+      container.appendChild(fragment);
+      if(loadMore.innerHTML) container.appendChild(loadMore);
+
+      // button handlers
+      document.querySelectorAll('.view-btn').forEach(b=> b.addEventListener('click', (ev)=>{ const acct = ev.currentTarget.getAttribute('data-account'); highlightAccountsInNetwork([acct]); document.getElementById('nodeDetailsContent').innerHTML = `<strong>${acct}</strong><div style="margin-top:6px">Loading transactions...</div>`; fetch(`/api/transactions?account=${encodeURIComponent(acct)}`).then(r=>r.json()).then(rows=>{ const html = ['<div style="margin-top:8px"><strong>Recent Transactions</strong><div style="max-height:240px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th>ID</th><th>Date</th><th style="text-align:right">Amount</th><th>Risk</th></tr></thead><tbody>']; rows.slice(0,50).forEach(rw=> html.push(`<tr><td>${rw.id||''}</td><td>${rw.date||''}</td><td style="text-align:right">$${(Number(rw.amount)||0).toLocaleString()}</td><td>${rw.risk||''}</td></tr>`)); html.push('</tbody></table></div></div>'); document.getElementById('nodeDetailsContent').innerHTML = html.join(''); }).catch(()=>{ document.getElementById('nodeDetailsContent').innerHTML = '<div>Could not load transactions</div>'; }); }));
+
+      const btn = document.getElementById('loadMoreBtn');
+      if(btn){ btn.addEventListener('click', ()=>{ page++; // remove loadMore and render next page
+        const lm = document.getElementById('risk-load-more'); if(lm) lm.remove(); renderPage(); }); }
+    }
+
+    // initial page render
+    renderPage();
   }catch(e){ console.warn('risk profiles', e); }
 }
 

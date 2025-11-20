@@ -12,6 +12,15 @@ body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7f
 .header h1{font-size:24px;margin-bottom:6px}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:16px 0}
 .card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.risk-card{display:flex;flex-direction:column;gap:8px;padding:12px}
+.risk-card .risk-card-header{display:flex;justify-content:space-between;align-items:center}
+.risk-card .acct{font-size:16px}
+.risk-card .actions .view-btn{background:#00d4ff;border:none;color:#032;padding:6px 8px;border-radius:6px;cursor:pointer}
+.risk-card .risk-card-body .meta{color:#666;font-size:13px;margin-top:6px}
+.risk-card .metrics{display:flex;gap:12px;align-items:center;margin-top:6px}
+.risk-card .metrics .avg-risk{font-size:18px}
+.risk-card .metrics .flags{color:#ff6b6b}
+.risk-card .sparkline{margin-top:6px}
 .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .table{width:100%;border-collapse:collapse}
 .table th,.table td{padding:10px;border-bottom:1px solid #eee;text-align:left}

@@ -224,12 +224,20 @@ app.get('/api/risk-profiles', (req, res)=>{
       const acct = r.from_account || r.from || r.From;
       const risk = Number(r.risk||r.Risk||0);
       const amount = Number(r.amount||r.Amount||0);
+      const status = (r.status||'').toString();
+      const dateStr = r.date || r.timestamp || r.Time || r.time || '';
+      const txDate = dateStr ? new Date(dateStr) : null;
       if(!acct) return;
-      if(!byAccount.has(acct)) byAccount.set(acct, { account: acct, txCount:0, totalVolume:0, riskSum:0 });
+      if(!byAccount.has(acct)) byAccount.set(acct, { account: acct, txCount:0, totalVolume:0, riskSum:0, lastTx: null, flaggedCount:0, recentAmounts: [] });
       const s = byAccount.get(acct);
       s.txCount += 1; s.totalVolume += amount; s.riskSum += risk;
+      if(status && status.toLowerCase() === 'flagged') s.flaggedCount += 1;
+      if(txDate && (!s.lastTx || txDate > s.lastTx)) s.lastTx = txDate;
+      // keep small recent amounts for a mini sparkline (keep last 6)
+      s.recentAmounts.push(amount);
+      if(s.recentAmounts.length > 6) s.recentAmounts.shift();
     });
-    const profiles = Array.from(byAccount.values()).map(p=>({ account: p.account, txCount: p.txCount, totalVolume: p.totalVolume, avgRisk: Math.round(p.riskSum / p.txCount) }));
+    const profiles = Array.from(byAccount.values()).map(p=>({ account: p.account, txCount: p.txCount, totalVolume: p.totalVolume, avgRisk: Math.round(p.riskSum / p.txCount), lastTx: p.lastTx ? p.lastTx.toISOString() : null, flaggedCount: p.flaggedCount || 0, recentAmounts: p.recentAmounts || [] }));
     profiles.sort((a,b)=>b.totalVolume - a.totalVolume);
     res.json(profiles);
   }catch(err){ res.status(500).json({ error: err.message }); }
