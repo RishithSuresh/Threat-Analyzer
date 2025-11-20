@@ -269,12 +269,35 @@ function setupNetwork(payload) {
   network.fit({ animation: { duration: 500 } });
 
   // Event listeners for node interactions
+  const detailsEl = document.getElementById('nodeDetailsContent');
+
   network.on('selectNode', (params) => {
-    console.log('Node selected:', params);
+    try{
+      const nodeId = params.nodes && params.nodes[0];
+      if(!nodeId) return;
+      const node = nodes.get(nodeId);
+      if(!node) return;
+      // Build detail HTML (safe fields)
+      const txCount = node.txCount || 0;
+      const total = node.totalAmount || node.value || 0;
+      const avgRisk = node.avgRisk || 0;
+      const ips = node.ips || node.ip || [];
+      const ipLine = (ips && ips.length) ? `<div><strong>IP(s):</strong> ${Array.isArray(ips)?ips.join(', '):ips}</div>` : '';
+      const html = `
+        <div style="line-height:1.4">
+          <div><strong>Account:</strong> ${node.label}</div>
+          <div><strong>Transactions:</strong> ${txCount}</div>
+          <div><strong>Total Amount:</strong> $${Number(total).toLocaleString()}</div>
+          <div><strong>Average Risk:</strong> ${avgRisk}</div>
+          ${ipLine}
+        </div>
+      `;
+      if(detailsEl) detailsEl.innerHTML = html;
+    }catch(e){ console.warn('selectNode handler', e); }
   });
 
   network.on('deselectNode', (params) => {
-    console.log('Node deselected:', params);
+    if(detailsEl) detailsEl.innerHTML = 'Click a node to see details';
   });
 }
 

@@ -72,12 +72,47 @@ app.get('/api/network', (req, res) => {
     data.forEach(row=>{
       const from = row.from_account || row.from || row.From;
       const to = row.to_account || row.to || row.To;
-      const amount = Number(row.amount || row.Amount || 0);
-      if(from){ if(!accounts.has(from)) accounts.set(from, { id: from, label: from, value: 0, group: 'account' }); accounts.get(from).value += amount; }
-      if(to){ if(!accounts.has(to)) accounts.set(to, { id: to, label: to, value: 0, group: 'account' }); accounts.get(to).value += amount; }
+      const amount = Number(row.amount || row.Amount || 0) || 0;
+      const risk = Number(row.risk || row.Risk || 0) || 0;
+      // attempt to detect IP fields in the row (flexible names)
+      const possibleIpKeys = Object.keys(row).filter(k=>/ip|address|host/i.test(k));
+      let ipFrom = null, ipTo = null;
+      // heuristics: look for source/dest, from/to prefixes
+      for(const k of possibleIpKeys){
+        const kl = k.toLowerCase();
+        const val = (row[k]||'').toString().trim();
+        if(!val) continue;
+        if(/^(source|src|from).*(ip|address)/i.test(kl) || /from_ip|src_ip/i.test(kl)) ipFrom = ipFrom || val;
+        else if(/^(dest|dst|to).*(ip|address)/i.test(kl) || /to_ip|dst_ip/i.test(kl)) ipTo = ipTo || val;
+        else if(/ip$/i.test(kl) && !ipFrom) ipFrom = ipFrom || val;
+      }
+
+      // ensure account entry exists and track summary stats + ip sets
+      if(from){
+        if(!accounts.has(from)) accounts.set(from, { id: from, label: from, value: 0, group: 'account', txCount:0, totalAmount:0, riskSum:0, ipSet: new Set() });
+        const a = accounts.get(from);
+        a.value += amount; a.txCount += 1; a.totalAmount += amount; a.riskSum += risk;
+        if(ipFrom) a.ipSet.add(ipFrom);
+      }
+      if(to){
+        if(!accounts.has(to)) accounts.set(to, { id: to, label: to, value: 0, group: 'account', txCount:0, totalAmount:0, riskSum:0, ipSet: new Set() });
+        const b = accounts.get(to);
+        b.value += amount; b.txCount += 1; b.totalAmount += amount; b.riskSum += risk;
+        if(ipTo) b.ipSet.add(ipTo);
+      }
       if(from && to) edges.push({ from, to, label: `$${amount.toLocaleString()}` });
     });
-    res.json({ nodes: Array.from(accounts.values()), edges });
+
+    // Map to node objects and include a hover title with account details (vis.js will show this)
+    const nodes = Array.from(accounts.values()).map(a=>{
+      const avgRisk = a.txCount ? Math.round(a.riskSum / a.txCount) : 0;
+      const ips = a.ipSet ? Array.from(a.ipSet).slice(0,5) : [];
+      const ipsHtml = ips.length ? `<br/><strong>IP(s):</strong> ${ips.join(', ')}` : '';
+      const title = `<div style="font-size:13px;padding:6px"><strong>Account:</strong> ${a.label}<br/><strong>Tx Count:</strong> ${a.txCount}<br/><strong>Total:</strong> $${Number(a.totalAmount).toLocaleString()}<br/><strong>Avg Risk:</strong> ${avgRisk}${ipsHtml}</div>`;
+      return { id: a.id, label: a.label, value: a.value, group: a.group, txCount: a.txCount, totalAmount: a.totalAmount, avgRisk, ips, title };
+    });
+
+    res.json({ nodes, edges });
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
 
