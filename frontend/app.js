@@ -408,20 +408,106 @@ function highlightAccountsInNetwork(accounts){
     window.network.selectNodes(idsToSelect);
     window.network.focus(idsToSelect[0], { scale: 1.2, animation: { duration: 400 } });
     setTimeout(()=> window.network.fit({ nodes: idsToSelect, animation: { duration: 400 } }), 450);
-
-    // temporarily highlight nodes by changing background
-    const originalStates = {};
-    idsToSelect.forEach(id=>{
-      const n = window.networkNodes.get(id);
-      if(n){ originalStates[id] = n.color; window.networkNodes.update(Object.assign({}, n, { color: { background: '#ffd54f' } })); }
-    });
-    setTimeout(()=>{
-      idsToSelect.forEach(id=>{
-        const n = window.networkNodes.get(id);
-        if(n){ const updated = Object.assign({}, n); delete updated.color; window.networkNodes.update(updated); }
-      });
-    }, 3000);
+    // pulse the nodes visually for a short duration
+    pulseNodes(idsToSelect, 4000, 450);
   }catch(e){ console.warn('highlightAccountsInNetwork error', e); }
+}
+
+// Pulse a set of nodes (toggle highlight) for duration milliseconds
+function pulseNodes(ids, duration = 4000, intervalMs = 400){
+  try{
+    if(!ids || !ids.length || !window.networkNodes) return;
+    // clear any existing pulses
+    if(!window._pulses) window._pulses = [];
+    const originals = {};
+    ids.forEach(id=>{
+      const n = window.networkNodes.get(id);
+      if(n){ originals[id] = { color: n.color ? JSON.parse(JSON.stringify(n.color)) : null, size: n.size || null }; }
+    });
+    let on = false;
+    const iv = setInterval(()=>{
+      ids.forEach(id=>{
+        const n = window.networkNodes.get(id);
+        if(!n) return;
+          if(on){
+          // highlighted state (red pulse)
+          window.networkNodes.update(Object.assign({}, n, { color: { background: '#ff6b6b' }, size: (n.size || 20) + 6 }));
+        } else {
+          // restore to original visual state
+          const orig = originals[id] || {};
+          const upd = Object.assign({}, n);
+          if(orig.color) upd.color = orig.color; else delete upd.color;
+          if(orig.size) upd.size = orig.size; else delete upd.size;
+          window.networkNodes.update(upd);
+        }
+      });
+      on = !on;
+    }, intervalMs);
+    window._pulses.push(iv);
+    setTimeout(()=>{
+      clearInterval(iv);
+      // restore originals
+      ids.forEach(id=>{
+        const orig = originals[id];
+        if(!orig) return;
+        const n = window.networkNodes.get(id);
+        if(!n) return;
+        const upd = Object.assign({}, n);
+        if(orig.color) upd.color = orig.color; else delete upd.color;
+        if(orig.size) upd.size = orig.size; else delete upd.size;
+        window.networkNodes.update(upd);
+      });
+    }, duration + 50);
+  }catch(e){ console.warn('pulseNodes error', e); }
+}
+
+// Flow particle animation along edges
+window._flow = window._flow || { interval: null, particles: {}, counter: 0 };
+function startFlowAnimation(){
+  try{
+    if(window._flow.interval) return; // already running
+    // spawn particles periodically
+    window._flow.interval = setInterval(()=>{
+      try{
+        if(!window.network || !window.networkEdges || !window.networkNodes) return;
+        const allEdges = window.networkEdges.get();
+        if(!allEdges || allEdges.length===0) return;
+        // pick a random edge to animate
+        const edge = allEdges[Math.floor(Math.random()*allEdges.length)];
+        const fromPos = window.network.getPositions([edge.from])[edge.from];
+        const toPos = window.network.getPositions([edge.to])[edge.to];
+        if(!fromPos || !toPos) return;
+        // create particle node
+        const id = 'particle_' + (window._flow.counter++);
+        const particle = { id, x: fromPos.x, y: fromPos.y, fixed: { x:true, y:true }, physics:false, shape:'dot', size:6, color:{background:'#00d4ff', border:'#00a8d8'} };
+        window.networkNodes.add(particle);
+        const steps = 24;
+        let step = 0;
+        const stepIv = setInterval(()=>{
+          step++;
+          const t = step/steps;
+          const nx = fromPos.x + (toPos.x - fromPos.x) * t;
+          const ny = fromPos.y + (toPos.y - fromPos.y) * t;
+          try{ window.networkNodes.update({ id, x: nx, y: ny }); }catch(e){}
+          if(step >= steps){
+            clearInterval(stepIv);
+            try{ window.networkNodes.remove(id); }catch(e){}
+          }
+        }, 30);
+      }catch(e){ /* ignore per-iteration errors */ }
+    }, 300);
+  }catch(e){ console.warn('startFlowAnimation', e); }
+}
+
+function stopFlowAnimation(){
+  try{
+    if(window._flow.interval){ clearInterval(window._flow.interval); window._flow.interval = null; }
+    // remove any lingering particles named particle_
+    try{
+      const nodes = window.networkNodes.get();
+      nodes.filter(n=> n.id && typeof n.id === 'string' && n.id.startsWith('particle_')).forEach(p=>{ try{ window.networkNodes.remove(p.id); }catch(e){} });
+    }catch(e){}
+  }catch(e){ console.warn('stopFlowAnimation', e); }
 }
 
 // (removed duplicate nav handler)
@@ -437,7 +523,36 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
 // Adjusting the spider map layout to reduce overlap
 function setupNetwork(payload) {
-  const nodes = new vis.DataSet(payload.nodes || []);
+  // Include first IP in the visible node label when available
+  function extractIpsFromHtml(html){
+    try{
+      if(!html) return [];
+      // strip tags
+      const text = html.replace(/<[^>]+>/g,' ');
+      // look for 'IP(s):' or 'IP:' marker
+      const m = text.match(/IP\(s\):?\s*([0-9.,\s:]+)/i) || text.match(/IP:?\s*([0-9.,\s:]+)/i);
+      if(m && m[1]){
+        // split by comma or whitespace
+        return m[1].split(/[,\s]+/).map(s=>s.trim()).filter(Boolean);
+      }
+    }catch(e){}
+    return [];
+  }
+  const nodeList = (payload.nodes || []).map(n=>{
+    try{
+      const copy = Object.assign({}, n);
+      // ensure we have an ips array, try to extract from title/html if missing
+      if((!copy.ips || copy.ips.length===0) && copy.title){
+        const parsed = extractIpsFromHtml(copy.title);
+        if(parsed && parsed.length) copy.ips = parsed;
+      }
+      if(copy && copy.ips && copy.ips.length){
+        copy.label = `${copy.label}\n${copy.ips[0]}`;
+      }
+      return copy;
+    }catch(e){ return n; }
+  });
+  const nodes = new vis.DataSet(nodeList);
   const edges = new vis.DataSet(payload.edges || []);
   const container = document.getElementById('networkViz');
   const data = { nodes, edges };
@@ -500,15 +615,50 @@ function setupNetwork(payload) {
     // Iterate current edges and update visual properties
     edges.forEach(edge => {
       try{
-        const amt = Number(edge.amount || edge.value || edge.weight || 0) || 0;
+        // try to obtain a numeric amount; backend may only provide a label like "$1,234"
+        let amt = Number(edge.amount || edge.value || edge.weight || 0) || 0;
+        if(!amt){
+          // attempt to parse amount from label text (e.g. "$1,234")
+          const lbl = (edge.label || '').toString();
+          const m = lbl.match(/\$\s*([0-9,]+(?:\.[0-9]+)?)/);
+          if(m && m[1]){
+            try{ amt = Number(m[1].replace(/,/g,'')) || 0; }catch(e){ amt = 0; }
+          }
+        }
         const width = amt ? Math.min(8, Math.max(1, Math.round(Math.log10(amt + 1)))) : (edge.width || 1);
-        const label = amt ? `$${Number(amt).toLocaleString()}` : (edge.label || '');
-        const title = amt ? `Amount: $${Number(amt).toLocaleString()}` : (edge.title || '');
+        // include destination node IPs when available and show a compact inline IP on the label
+        const destNode = (edge && edge.to) ? nodes.get(edge.to) : null;
+        const destIps = destNode && destNode.ips && destNode.ips.length ? destNode.ips : [];
+        const inlineIp = destIps.length ? `\nIP:${destIps[0]}` : '';
+        const label = (amt ? `$${Number(amt).toLocaleString()}` : (edge.label || '')) + inlineIp;
+        const destIpLine = destIps.length ? `\nDestination IP(s): ${destIps.join(', ')}` : '';
+        const title = (amt ? `Amount: $${Number(amt).toLocaleString()}` : (edge.title||'')) + destIpLine;
+        // color edges by amount: small=gray, medium=orange, large=red
+        let edgeColor = '#9aa0a6';
+        if(amt >= 150000) edgeColor = '#ff6b6b';
+        else if(amt >= 50000) edgeColor = '#ffa500';
+        else edgeColor = '#9aa0a6';
         const eid = edge.id || `${edge.from}->${edge.to}`;
-        edges.update(Object.assign({}, edge, { id: eid, arrows: 'to', width: width, label: label, title: title }));
+        edges.update(Object.assign({}, edge, { id: eid, arrows: 'to', width: width, label: label, title: title, color: { color: edgeColor, highlight: '#555', hover: '#555' } }));
       }catch(e){/* ignore edge-specific errors */}
     });
   }catch(e){ console.warn('edge enhancement failed', e); }
+
+  // Setup UI toggles for pulse and flow
+  try{
+    const pulseToggle = document.getElementById('togglePulse');
+    const flowToggle = document.getElementById('toggleFlow');
+    window.enablePulse = pulseToggle ? pulseToggle.checked : true;
+    window.enableFlow = flowToggle ? flowToggle.checked : true;
+    if(pulseToggle) pulseToggle.addEventListener('change', (ev)=>{ window.enablePulse = ev.target.checked; });
+    if(flowToggle) flowToggle.addEventListener('change', (ev)=>{
+      window.enableFlow = ev.target.checked;
+      if(window.enableFlow) startFlowAnimation(); else stopFlowAnimation();
+    });
+  }catch(e){/* ignore */}
+
+  // start flow animation if enabled
+  if(window.enableFlow) startFlowAnimation();
 
   // Event listeners for node interactions
   const detailsEl = document.getElementById('nodeDetailsContent');
@@ -525,6 +675,33 @@ function setupNetwork(payload) {
       const avgRisk = node.avgRisk || 0;
       const ips = node.ips || node.ip || [];
       const ipLine = (ips && ips.length) ? `<div><strong>IP(s):</strong> ${Array.isArray(ips)?ips.join(', '):ips}</div>` : '';
+      // Find sink accounts reachable from this node (end of money trail)
+      function findSinks(startId){
+        const visited = new Set();
+        const sinks = new Set();
+        const stack = [startId];
+        try{
+          while(stack.length){
+            const cur = stack.pop();
+            if(visited.has(cur)) continue;
+            visited.add(cur);
+            // outgoing edges from cur
+            const outgoing = edges.get().filter(e=> e.from === cur);
+            if(!outgoing || outgoing.length === 0){
+              sinks.add(cur);
+            } else {
+              outgoing.forEach(e=>{ if(!visited.has(e.to)) stack.push(e.to); });
+            }
+          }
+        }catch(e){ }
+        return Array.from(sinks);
+      }
+
+      const sinks = findSinks(nodeId).filter(id=> id !== nodeId);
+      const sinkIps = new Set();
+      sinks.forEach(sid=>{ const sn = nodes.get(sid); if(sn && sn.ips && sn.ips.length) sn.ips.forEach(i=>sinkIps.add(i)); });
+      const sinkIpLine = sinkIps.size ? `<div style="margin-top:8px"><strong>Destination IP(s):</strong> ${Array.from(sinkIps).join(', ')}</div>` : '';
+
       const html = `
         <div style="line-height:1.4">
           <div><strong>Account:</strong> ${node.label}</div>
@@ -532,6 +709,7 @@ function setupNetwork(payload) {
           <div><strong>Total Amount:</strong> $${Number(total).toLocaleString()}</div>
           <div><strong>Average Risk:</strong> ${avgRisk}</div>
           ${ipLine}
+          ${sinkIpLine}
         </div>
       `;
       if(detailsEl) detailsEl.innerHTML = html;
