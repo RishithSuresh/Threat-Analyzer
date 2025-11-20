@@ -1,16 +1,17 @@
-// Unified navigation: switch view, set active, and refresh data
-document.querySelectorAll('.nav button').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    const view = btn.dataset.view;
-    document.querySelectorAll('.view').forEach(s=>s.style.display='none');
-    const el = document.getElementById(view);
-    if(el) el.style.display='block';
-    console.log('[NAV] Switched to view:', view);
-    setTimeout(()=> refreshView(view), 100);
+// Navigation binding will be attached on DOMContentLoaded to avoid early DOM access
+// Global error overlay to help debug runtime failures in the browser
+try{
+  window.addEventListener('error', function(ev){
+    try{
+      const msg = (ev && ev.message) ? ev.message : String(ev);
+      let el = document.getElementById('jsErrorOverlay');
+      if(!el){ el = document.createElement('div'); el.id = 'jsErrorOverlay'; el.style.position='fixed'; el.style.right='12px'; el.style.top='12px'; el.style.zIndex=99999; el.style.background='rgba(255,50,50,0.95)'; el.style.color='#fff'; el.style.padding='12px'; el.style.borderRadius='6px'; el.style.maxWidth='480px'; el.style.fontFamily='sans-serif'; el.style.fontSize='13px'; document.body && document.body.appendChild(el); }
+      el.innerText = 'JS Error: ' + msg;
+    }catch(e){}
   });
-});
+  window.addEventListener('unhandledrejection', function(ev){
+    try{ const el = document.getElementById('jsErrorOverlay'); if(el) el.innerText = 'Unhandled Rejection: ' + (ev && ev.reason? (ev.reason.message||String(ev.reason)) : String(ev)); }catch(e){} });
+}catch(e){}
 
 // When view changes, refresh data for that view
 function refreshView(view){
@@ -118,6 +119,40 @@ function populateCharts(rows){
 
 // Chart initialization
 document.addEventListener('DOMContentLoaded', ()=>{
+  // Bind navigation buttons (deferred until DOM is ready)
+  try{
+    document.querySelectorAll('.nav button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        const view = btn.dataset.view;
+        document.querySelectorAll('.view').forEach(s=>s.style.display='none');
+        const el = document.getElementById(view);
+        if(el) el.style.display='block';
+        console.log('[NAV] Switched to view:', view);
+        setTimeout(()=> refreshView(view), 100);
+      });
+    });
+    // Add a delegated listener as a more robust fallback
+    const navRoot = document.querySelector('.nav');
+    if(navRoot){
+      navRoot.addEventListener('click', (ev)=>{
+        const btn = ev.target.closest && ev.target.closest('button[data-view]');
+        if(!btn) return;
+        try{
+          document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          const view = btn.dataset.view;
+          document.querySelectorAll('.view').forEach(s=>s.style.display='none');
+          const el = document.getElementById(view);
+          if(el) el.style.display='block';
+          console.log('[NAV-delegated] Switched to view:', view);
+          setTimeout(()=> refreshView(view), 100);
+        }catch(e){ console.warn('nav delegated handler failed', e); }
+      });
+    }
+  }catch(e){ console.warn('nav binding failed', e); }
+
   const lineCtx = document.getElementById('lineChart').getContext('2d');
   window.lineChart = new Chart(lineCtx,{
     type:'line',
@@ -293,6 +328,26 @@ function setupNetwork(payload) {
         </div>
       `;
       if(detailsEl) detailsEl.innerHTML = html;
+      // Fetch related transactions from the server (use current_dataset.csv on server-side)
+      fetch(`/api/transactions?account=${encodeURIComponent(nodeId)}`).then(r=>{
+        if(!r.ok) throw new Error('No transactions');
+        return r.json();
+      }).then(rows=>{
+        if(!detailsEl) return;
+        if(!rows || rows.length===0){
+          detailsEl.innerHTML += '<div style="margin-top:8px;color:#666">No related transactions found.</div>';
+          return;
+        }
+        // Build a compact table of related transactions
+        const tableHtml = ['<div style="margin-top:8px"><strong>Related Transactions</strong><div style="max-height:220px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:13px;border-collapse:collapse">', '<thead><tr><th style="text-align:left;padding:4px">ID</th><th style="text-align:left;padding:4px">Date</th><th style="text-align:right;padding:4px">Amount</th><th style="text-align:left;padding:4px">Risk</th></tr></thead><tbody>'];
+        rows.slice(0,50).forEach(rw=>{
+          tableHtml.push(`<tr><td style="padding:4px">${(rw.id||'')}</td><td style="padding:4px">${(rw.date||'')}</td><td style="padding:4px;text-align:right">$${(Number(rw.amount)||0).toLocaleString()}</td><td style="padding:4px">${(rw.risk||'')}</td></tr>`);
+        });
+        tableHtml.push('</tbody></table></div></div>');
+        detailsEl.innerHTML += tableHtml.join('');
+      }).catch(()=>{
+        if(detailsEl) detailsEl.innerHTML += '<div style="margin-top:8px;color:#666">Could not load transactions.</div>';
+      });
     }catch(e){ console.warn('selectNode handler', e); }
   });
 

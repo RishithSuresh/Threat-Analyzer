@@ -56,9 +56,18 @@ else {
 // API: transactions - return current rows (uploaded) or error if none
 app.get('/api/transactions', async (req, res) => {
   try{
-    if(currentRows && Array.isArray(currentRows)) return res.json(currentRows);
-    // no current dataset
-    return res.status(404).json({ error: 'No dataset uploaded. Use POST /api/upload to provide a CSV.' });
+    if(!currentRows || !Array.isArray(currentRows)) return res.status(404).json({ error: 'No dataset uploaded. Use POST /api/upload to provide a CSV.' });
+    const account = req.query.account;
+    if(account){
+      // return rows where either from_account or to_account matches the account id
+      const filtered = currentRows.filter(r => {
+        const from = (r.from_account || r.from || '').toString();
+        const to = (r.to_account || r.to || '').toString();
+        return from === account || to === account;
+      });
+      return res.json(filtered);
+    }
+    return res.json(currentRows);
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
 
