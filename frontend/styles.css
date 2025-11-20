@@ -46,3 +46,29 @@ body{font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#f5f7f
 .table th,.table td{padding:10px;border-bottom:1px solid #eee;text-align:left}
 .network-container{height:520px;background:linear-gradient(135deg,#eef0f7,#f5f7fa);border-radius:12px}
 @media(max-width:900px){.charts{grid-template-columns:1fr}.sidebar{display:none}}
+
+/* Network legend and details styling */
+#nodeDetails { width:320px; }
+#nodeDetails .card { padding:12px }
+#networkViz { background: transparent; border-radius:8px; }
+.network-legend { font-size:13px; padding:8px; background:var(--card); border-radius:8px; box-shadow:0 6px 14px rgba(0,0,0,0.04); }
+.network-legend div { margin-top:6px; display:flex; align-items:center; gap:8px }
+.network-legend .swatch { width:12px; height:12px; border-radius:3px; display:inline-block }
+
+/* Style for pattern Inspect buttons */
+.pattern-highlight{ padding:6px 8px; border-radius:6px; background:transparent; border:1px solid #e6e9ee; cursor:pointer }
+.pattern-highlight:hover{ background:var(--glass) }
+
+/* pulse animation for sink highlight - subtle shadow grow */
+@keyframes sinkPulse {
+	0% { box-shadow: 0 0 0 0 rgba(255,107,107,0.25); }
+	70% { box-shadow: 0 0 0 18px rgba(255,107,107,0); }
+	100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); }
+}
+.sink-highlight { animation: sinkPulse 1.6s ease-in-out infinite; }
+
+/* compact pagination controls */
+#txPagination { font-size:13px; color:var(--muted); margin-top:10px }
+#txPagination button{ padding:6px 8px; border-radius:6px; border:1px solid #e6e9ee; background:var(--card); cursor:pointer }
+#txPagination button[disabled]{ opacity:0.5; cursor:not-allowed }
+

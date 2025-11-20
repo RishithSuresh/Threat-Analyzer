@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const { parse } = require('csv-parse');
 const multer = require('multer');
+const { evaluateRules } = require('./rules');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -67,21 +68,53 @@ else {
   }
 }
 
-// API: transactions - return current rows (uploaded) or error if none
+// API: transactions - return current rows with optional server-side filtering, sorting and pagination
 app.get('/api/transactions', async (req, res) => {
   try{
     if(!currentRows || !Array.isArray(currentRows)) return res.status(404).json({ error: 'No dataset uploaded. Use POST /api/upload to provide a CSV.' });
+    // Query params: account, ip, page, pageSize, sort (amount|date|risk), order (asc|desc)
     const account = req.query.account;
+    const ipFilter = req.query.ip;
+    const page = Math.max(1, parseInt(req.query.page||'1'));
+    const pageSize = Math.min(1000, Math.max(5, parseInt(req.query.pageSize||'100')));
+    const sort = (req.query.sort||'').toLowerCase();
+    const order = (req.query.order||'desc').toLowerCase();
+
+    let rows = currentRows.slice();
     if(account){
-      // return rows where either from_account or to_account matches the account id
-      const filtered = currentRows.filter(r => {
+      rows = rows.filter(r => {
         const from = (r.from_account || r.from || '').toString();
         const to = (r.to_account || r.to || '').toString();
         return from === account || to === account;
       });
-      return res.json(filtered);
     }
-    return res.json(currentRows);
+    if(ipFilter){
+      rows = rows.filter(r => {
+        // look for any ip-like fields in row
+        const vals = Object.values(r).map(v=>(''+v).toLowerCase());
+        return vals.some(v=> v.includes(ipFilter.toLowerCase()));
+      });
+    }
+
+    // sorting
+    if(sort){
+      rows.sort((a,b)=>{
+        let va = a[sort] || a[sort.charAt(0).toUpperCase()+sort.slice(1)] || '';
+        let vb = b[sort] || b[sort.charAt(0).toUpperCase()+sort.slice(1)] || '';
+        // convert numeric when possible
+        const na = Number(va);
+        const nb = Number(vb);
+        if(!isNaN(na) && !isNaN(nb)) va = na, vb = nb;
+        if(va < vb) return order === 'asc' ? -1 : 1;
+        if(va > vb) return order === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    const total = rows.length;
+    const start = (page - 1) * pageSize;
+    const paged = rows.slice(start, start + pageSize);
+    res.json({ total, page, pageSize, rows: paged });
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
 
@@ -295,6 +328,21 @@ app.get('/api/patterns', (req, res)=>{
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
 
+// API: alerts - run simple rules engine against current rows
+app.get('/api/alerts', (req, res)=>{
+  try{
+    const data = currentRows || [];
+    const severity = (req.query.severity||'').toUpperCase();
+    const account = req.query.account;
+    const opts = { highAmountThreshold: req.query.highAmountThreshold ? Number(req.query.highAmountThreshold) : undefined, frequentCount: req.query.frequentCount ? Number(req.query.frequentCount) : undefined };
+    const alerts = evaluateRules(data, opts || {});
+    let filtered = alerts;
+    if(severity) filtered = filtered.filter(a=> (a.severity||'').toUpperCase() === severity );
+    if(account) filtered = filtered.filter(a=> a.account === account );
+    res.json(filtered);
+  }catch(err){ res.status(500).json({ error: err.message }); }
+});
+
 // Fallback route - serve index.html for SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
@@ -315,10 +363,16 @@ app.get('/api/export/risk-profiles', (req, res)=>{
   try{
     const cached = simpleCache.get('riskProfiles') || [];
     const rows = (cached || []).map(p=>({ account: p.account, txCount: p.txCount, totalVolume: p.totalVolume, avgRisk: p.avgRisk, lastTx: p.lastTx || '', flaggedCount: p.flaggedCount || 0 }));
-    const csv = toCsv(rows, ['account','txCount','totalVolume','avgRisk','lastTx','flaggedCount']);
     res.setHeader('Content-Type','text/csv');
     res.setHeader('Content-Disposition','attachment; filename="risk_profiles.csv"');
-    res.send(csv);
+    // stream header then rows
+    const header = ['account','txCount','totalVolume','avgRisk','lastTx','flaggedCount'];
+    res.write(header.join(',') + '\n');
+    for(const r of rows){
+      const line = header.map(h=> '"' + (''+(r[h]!==undefined ? r[h] : '')).replace(/"/g,'""') + '"').join(',');
+      res.write(line + '\n');
+    }
+    res.end();
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
 
@@ -327,11 +381,16 @@ app.get('/api/export/transactions', (req, res)=>{
     const account = req.query.account;
     const data = currentRows || [];
     const rows = account ? data.filter(r=> (r.from_account||r.from||'')===account || (r.to_account||r.to||'')===account) : data;
-    const csvRows = rows.map(r=>({ id: r.id||r.transaction_id||'', date: r.date||r.timestamp||'', from_account: r.from_account||r.from||'', to_account: r.to_account||r.to||'', amount: r.amount||r.Amount||'', risk: r.risk||r.Risk||'', status: r.status||'' }));
-    const csv = toCsv(csvRows, ['id','date','from_account','to_account','amount','risk','status']);
     res.setHeader('Content-Type','text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="transactions${account?'-'+account:''}.csv"`);
-    res.send(csv);
+    const header = ['id','date','from_account','to_account','amount','risk','status'];
+    res.write(header.join(',') + '\n');
+    for(const r of rows){
+      const row = { id: r.id||r.transaction_id||'', date: r.date||r.timestamp||'', from_account: r.from_account||r.from||'', to_account: r.to_account||r.to||'', amount: r.amount||r.Amount||'', risk: r.risk||r.Risk||'', status: r.status||'' };
+      const line = header.map(h=> '"' + (''+(row[h]!==undefined ? row[h] : '')).replace(/"/g,'""') + '"').join(',');
+      res.write(line + '\n');
+    }
+    res.end();
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
 

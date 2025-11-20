@@ -13,6 +13,22 @@ try{
     try{ const el = document.getElementById('jsErrorOverlay'); if(el) el.innerText = 'Unhandled Rejection: ' + (ev && ev.reason? (ev.reason.message||String(ev.reason)) : String(ev)); }catch(e){} });
 }catch(e){}
 
+// Lightweight CSV parser for local fallback (header row expected)
+function parseCSV(text){
+  if(!text) return [];
+  const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+  if(lines.length === 0) return [];
+  const header = lines[0].split(',').map(h=>h.trim());
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    const cols = lines[i].split(',');
+    const obj = {};
+    for(let j=0;j<header.length;j++) obj[header[j]] = (cols[j]!==undefined ? cols[j].trim() : '');
+    rows.push(obj);
+  }
+  return rows;
+}
+
 // When view changes, refresh data for that view
 function refreshView(view){
   if(view === 'dashboard') fetchSummary();
@@ -22,16 +38,20 @@ function refreshView(view){
   if(view === 'patterns') fetchPatterns();
 }
 
-// Load transactions from API (fallback to local CSV path if API not available)
-async function loadTransactions(){
+// Load transactions from API (with pagination) and fallback to local CSV when API unavailable
+async function loadTransactions(page = 1, pageSize = 100){
   const tbody = document.querySelector('#txTable tbody');
   try{
-    const res = await fetch('/api/transactions');
+    const res = await fetch(`/api/transactions?page=${page}&pageSize=${pageSize}`);
     if(!res.ok) throw new Error('API fetch failed');
-    const data = await res.json();
-    populateTable(data);
-    populateCharts(data);
-    populateAlerts(data);
+    const payload = await res.json();
+    // payload: { total, page, pageSize, rows }
+    const rows = Array.isArray(payload.rows) ? payload.rows : payload;
+    populateTable(rows);
+    populateCharts(rows);
+    // fetch server-side alerts separately for dashboard
+    try{ fetchAlerts(); }catch(e){}
+    renderTransactionPagination(payload);
   } catch(e){
     // fallback: fetch local CSV
     try{
@@ -39,12 +59,42 @@ async function loadTransactions(){
       const text = await csvRes.text();
       const rows = parseCSV(text);
       populateTable(rows);
-        populateCharts(rows);
-        populateAlerts(rows);
+      populateCharts(rows);
+      // derive alerts locally if API not available
+      populateAlerts(rows);
     } catch(err){
       console.warn('Failed to load transactions', err);
     }
   }
+}
+
+// Render simple pagination controls for transactions table
+function renderTransactionPagination(payload){
+  try{
+    if(!payload) return;
+    const total = Number(payload.total||0);
+    const page = Number(payload.page||1);
+    const pageSize = Number(payload.pageSize||100);
+    const containerId = 'txPagination';
+    let container = document.getElementById(containerId);
+    if(!container){
+      container = document.createElement('div');
+      container.id = containerId;
+      container.style.display = 'flex';
+      container.style.justifyContent = 'space-between';
+      container.style.alignItems = 'center';
+      container.style.marginTop = '8px';
+      const txCard = document.querySelector('#transactions .card');
+      if(txCard) txCard.appendChild(container);
+    }
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    container.innerHTML = `<div>Showing page ${page} of ${totalPages} • ${total} transactions</div><div><button id="txPrevBtn" ${page<=1?'disabled':''}>Prev</button> <button id="txNextBtn" ${page>=totalPages?'disabled':''}>Next</button> <select id="txPageSize"><option value="25">25</option><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option></select></div>`;
+    document.getElementById('txPrevBtn').addEventListener('click', ()=>{ loadTransactions(Math.max(1,page-1), pageSize); });
+    document.getElementById('txNextBtn').addEventListener('click', ()=>{ loadTransactions(Math.min(totalPages,page+1), pageSize); });
+    const ps = document.getElementById('txPageSize');
+    ps.value = String(pageSize);
+    ps.addEventListener('change', (ev)=>{ loadTransactions(1, Number(ev.target.value||100)); });
+  }catch(e){ console.warn('renderTransactionPagination failed', e); }
 }
 
 function populateTable(data){
@@ -181,6 +231,41 @@ function populateAlerts(rows){
   }catch(e){ console.warn('populateAlerts failed', e); }
 }
 
+// Server-side alerts fetch and render into the Recent Alerts card
+async function fetchAlerts(){
+  try{
+    const res = await fetch('/api/alerts');
+    if(!res.ok) throw new Error('No alerts');
+    const alerts = await res.json();
+    const tbody = (function(){
+      // find the Recent Alerts card tbody (same logic as populateAlerts)
+      let alertsTbody = null;
+      document.querySelectorAll('.card').forEach(card=>{
+        const h3 = card.querySelector('h3');
+        if(h3 && h3.textContent && h3.textContent.trim().toLowerCase().includes('recent alerts')){
+          const tb = card.querySelector('table.table tbody');
+          if(tb) alertsTbody = tb;
+        }
+      });
+      if(!alertsTbody) alertsTbody = document.querySelector('.card table.table tbody');
+      return alertsTbody;
+    })();
+    if(!tbody) return;
+    tbody.innerHTML = '';
+    if(!alerts || alerts.length === 0){
+      const tr = document.createElement('tr'); tr.innerHTML = `<td colspan="4" style="color:#666">No active alerts</td>`; tbody.appendChild(tr); return;
+    }
+    alerts.slice(0,6).forEach(a=>{
+      const severity = (a.severity||'').toUpperCase();
+      const color = severity === 'HIGH' ? '#ff6b6b' : severity === 'MED' ? '#ffa500' : '#4ade80';
+      const amt = a.matchedTxIds && a.matchedTxIds.length ? '' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${a.account||''}</td><td>${a.name || a.description || ''}</td><td>${amt}</td><td style="color:${color}">${severity||''}</td>`;
+      tbody.appendChild(tr);
+    });
+  }catch(e){ console.warn('fetchAlerts failed', e); }
+}
+
 // Chart initialization
 document.addEventListener('DOMContentLoaded', ()=>{
   // Bind navigation buttons (deferred until DOM is ready)
@@ -307,6 +392,8 @@ async function fetchSummary(){
     // update line chart data if possible: fetch transactions and update line chart
     const txRes = await fetch('/api/transactions');
     if(txRes.ok){ const rows = await txRes.json(); populateCharts(rows); }
+    // fetch server-side alerts to populate Recent Alerts card
+    try{ fetchAlerts(); }catch(e){}
   }catch(e){ console.warn('Summary fetch', e); }
 }
 
@@ -399,7 +486,16 @@ async function fetchRiskProfiles(){
       if(loadMore.innerHTML) container.appendChild(loadMore);
 
       // button handlers
-      document.querySelectorAll('.view-btn').forEach(b=> b.addEventListener('click', (ev)=>{ const acct = ev.currentTarget.getAttribute('data-account'); highlightAccountsInNetwork([acct]); document.getElementById('nodeDetailsContent').innerHTML = `<strong>${acct}</strong><div style="margin-top:6px">Loading transactions...</div>`; fetch(`/api/transactions?account=${encodeURIComponent(acct)}`).then(r=>r.json()).then(rows=>{ const html = ['<div style="margin-top:8px"><strong>Recent Transactions</strong><div style="max-height:240px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th>ID</th><th>Date</th><th style="text-align:right">Amount</th><th>Risk</th></tr></thead><tbody>']; rows.slice(0,50).forEach(rw=> html.push(`<tr><td>${rw.id||''}</td><td>${rw.date||''}</td><td style="text-align:right">$${(Number(rw.amount)||0).toLocaleString()}</td><td>${rw.risk||''}</td></tr>`)); html.push('</tbody></table></div></div>'); document.getElementById('nodeDetailsContent').innerHTML = html.join(''); }).catch(()=>{ document.getElementById('nodeDetailsContent').innerHTML = '<div>Could not load transactions</div>'; }); }));
+      document.querySelectorAll('.view-btn').forEach(b=> b.addEventListener('click', (ev)=>{ const acct = ev.currentTarget.getAttribute('data-account'); highlightAccountsInNetwork([acct]); const detailsElView = document.getElementById('nodeDetailsContent'); if(detailsElView) detailsElView.innerHTML = `<strong>${acct}</strong><div style="margin-top:6px">Loading transactions...</div>`; fetch(`/api/transactions?account=${encodeURIComponent(acct)}`).then(r=>{
+        if(!r.ok) throw new Error('No transactions');
+        return r.json();
+      }).then(data=>{
+        // API may return either an array or a paginated object { total, page, pageSize, rows }
+        const rows = Array.isArray(data) ? data : (Array.isArray(data.rows) ? data.rows : []);
+        const html = ['<div style="margin-top:8px"><strong>Recent Transactions</strong><div style="max-height:240px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th>ID</th><th>Date</th><th style="text-align:right">Amount</th><th>Risk</th></tr></thead><tbody>'];
+        rows.slice(0,50).forEach(rw=> html.push(`<tr><td>${rw.id||''}</td><td>${rw.date||''}</td><td style="text-align:right">$${(Number(rw.amount)||0).toLocaleString()}</td><td>${rw.risk||''}</td></tr>`)); html.push('</tbody></table></div></div>');
+        if(detailsElView) detailsElView.innerHTML = html.join('');
+      }).catch(()=>{ if(document.getElementById('nodeDetailsContent')) document.getElementById('nodeDetailsContent').innerHTML = '<div>Could not load transactions</div>'; }); }));
 
       const btn = document.getElementById('loadMoreBtn');
       if(btn){ btn.addEventListener('click', ()=>{ page++; const lm = document.getElementById('risk-load-more'); if(lm) lm.remove(); renderPage(); }); }
@@ -449,7 +545,7 @@ async function fetchPatterns(){
       const tr = document.createElement('tr');
       const accountsPart = p.accounts ? (' — ' + p.accounts.join(',')) : (p.account ? (' — ' + p.account) : '');
       const accountsData = p.accounts ? JSON.stringify(p.accounts) : JSON.stringify([]);
-      tr.innerHTML = `<td>${p.id||''}</td><td>${p.name||''}${accountsPart}</td><td style="color:${p.severity==='HIGH'||p.severity==='CRITICAL'?'#ff3333':p.severity==='MED'?'#ff6b6b':'#ffa500'}">${p.severity||'MED'}</td><td>${p.confidence?p.confidence+'%':''}</td><td><button class="pattern-highlight" data-accounts='${accountsData}'>Highlight</button></td>`;
+      tr.innerHTML = `<td>${p.id||''}</td><td>${p.name||''}${accountsPart}</td><td style="color:${p.severity==='HIGH'||p.severity==='CRITICAL'?'#ff3333':p.severity==='MED'?'#ff6b6b':'#ffa500'}">${p.severity||'MED'}</td><td>${p.confidence?p.confidence+'%':''}</td><td><button class="pattern-highlight" data-accounts='${accountsData}'>Inspect</button></td>`;
       tbody.appendChild(tr);
     });
     // attach handlers for highlight buttons
@@ -458,7 +554,24 @@ async function fetchPatterns(){
         const acc = ev.currentTarget.getAttribute('data-accounts');
         let accounts = [];
         try{ accounts = JSON.parse(acc||'[]'); }catch(e){ accounts = []; }
+        if(accounts.length===0) return;
+        // highlight on the network
         highlightAccountsInNetwork(accounts);
+        // show details for the first account in the list
+        const acct = accounts[0];
+        const detailsEl = document.getElementById('nodeDetailsContent');
+        if(detailsEl) detailsEl.innerHTML = `<strong>${acct}</strong><div style="margin-top:6px">Loading transactions...</div>`;
+        fetch(`/api/transactions?account=${encodeURIComponent(acct)}`).then(r=>{
+          if(!r.ok) throw new Error('No transactions');
+          return r.json();
+        }).then(data=>{
+          const rows = Array.isArray(data) ? data : (Array.isArray(data.rows) ? data.rows : []);
+          if(!rows || rows.length===0){ if(detailsEl) detailsEl.innerHTML = `<strong>${acct}</strong><div style="margin-top:6px;color:#666">No related transactions found.</div>`; return; }
+          const html = ['<div style="margin-top:8px"><strong>Recent Transactions</strong><div style="max-height:240px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th>ID</th><th>Date</th><th style="text-align:right">Amount</th><th>Risk</th></tr></thead><tbody>'];
+          rows.slice(0,50).forEach(rw=> html.push(`<tr><td>${rw.id||''}</td><td>${rw.date||''}</td><td style="text-align:right">$${(Number(rw.amount)||0).toLocaleString()}</td><td>${rw.risk||''}</td></tr>`));
+          html.push('</tbody></table></div></div>');
+          if(detailsEl) detailsEl.innerHTML = html.join('');
+        }).catch(()=>{ if(detailsEl) detailsEl.innerHTML = `<strong>${acct}</strong><div style="margin-top:6px;color:#666">Could not load transactions.</div>`; });
       });
     });
   }catch(e){
@@ -473,7 +586,7 @@ async function fetchPatterns(){
         const tr = document.createElement('tr');
         const accountsPart = p.accounts ? (' — ' + p.accounts.join(',')) : (p.account ? (' — ' + p.account) : '');
         const accountsData = p.accounts ? JSON.stringify(p.accounts) : JSON.stringify([]);
-        tr.innerHTML = `<td>${p.id||''}</td><td>${p.name||''}${accountsPart}</td><td style="color:${p.severity==='HIGH'||p.severity==='CRITICAL'?'#ff3333':p.severity==='MED'?'#ff6b6b':'#ffa500'}">${p.severity||'MED'}</td><td>${p.confidence?p.confidence+'%':''}</td><td><button class="pattern-highlight" data-accounts='${accountsData}'>Highlight</button></td>`;
+        tr.innerHTML = `<td>${p.id||''}</td><td>${p.name||''}${accountsPart}</td><td style="color:${p.severity==='HIGH'||p.severity==='CRITICAL'?'#ff3333':p.severity==='MED'?'#ff6b6b':'#ffa500'}">${p.severity||'MED'}</td><td>${p.confidence?p.confidence+'%':''}</td><td><button class="pattern-highlight" data-accounts='${accountsData}'>Inspect</button></td>`;
         tbody.appendChild(tr);
       });
       document.querySelectorAll('.pattern-highlight').forEach(b=>{
@@ -481,7 +594,18 @@ async function fetchPatterns(){
           const acc = ev.currentTarget.getAttribute('data-accounts');
           let accounts = [];
           try{ accounts = JSON.parse(acc||'[]'); }catch(e){ accounts = []; }
+          if(accounts.length===0) return;
           highlightAccountsInNetwork(accounts);
+          const acct = accounts[0];
+          const detailsEl = document.getElementById('nodeDetailsContent');
+          if(detailsEl) detailsEl.innerHTML = `<strong>${acct}</strong><div style="margin-top:6px">Loading transactions...</div>`;
+          fetch(`/api/transactions?account=${encodeURIComponent(acct)}`).then(r=>{ if(!r.ok) throw new Error('No transactions'); return r.json(); }).then(data=>{
+            const rows = Array.isArray(data) ? data : (Array.isArray(data.rows) ? data.rows : []);
+            if(!rows || rows.length===0){ if(detailsEl) detailsEl.innerHTML = `<strong>${acct}</strong><div style="margin-top:6px;color:#666">No related transactions found.</div>`; return; }
+            const html = ['<div style="margin-top:8px"><strong>Recent Transactions</strong><div style="max-height:240px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th>ID</th><th>Date</th><th style="text-align:right">Amount</th><th>Risk</th></tr></thead><tbody>'];
+            rows.slice(0,50).forEach(rw=> html.push(`<tr><td>${rw.id||''}</td><td>${rw.date||''}</td><td style="text-align:right">$${(Number(rw.amount)||0).toLocaleString()}</td><td>${rw.risk||''}</td></tr>`));
+            html.push('</tbody></table></div></div>'); if(detailsEl) detailsEl.innerHTML = html.join('');
+          }).catch(()=>{ if(detailsEl) detailsEl.innerHTML = `<strong>${acct}</strong><div style="margin-top:6px;color:#666">Could not load transactions.</div>`; });
         });
       });
     }catch(err){ console.warn('patterns fallback failed', err); }
@@ -694,7 +818,9 @@ function setupNetwork(payload) {
       },
     },
     layout: {
-      improvedLayout: true,
+      // improvedLayout can cause positioning failures on some LayoutEngine versions
+      // and large graphs. Disable it for more reliable placement.
+      improvedLayout: false,
       hierarchical: {
         enabled: false,
       },
@@ -713,6 +839,8 @@ function setupNetwork(payload) {
   window.networkNodes = nodes;
   window.networkEdges = edges;
   network.fit({ animation: { duration: 500 } });
+
+  // (legend is provided in the static HTML to avoid duplicates)
 
   // Enhance edges to show direction and amounts when available
   try{
@@ -747,6 +875,36 @@ function setupNetwork(payload) {
       }catch(e){/* ignore edge-specific errors */}
     });
   }catch(e){ console.warn('edge enhancement failed', e); }
+
+  // Optional clustering: if too many nodes, cluster low-degree nodes to reduce overlap
+  try{
+    const allNodes = nodes.get();
+    const allEdges = edges.get();
+    const nodeDegree = {};
+    allNodes.forEach(n=> nodeDegree[n.id] = 0);
+    allEdges.forEach(e=>{ if(e.from) nodeDegree[e.from] = (nodeDegree[e.from]||0)+1; if(e.to) nodeDegree[e.to] = (nodeDegree[e.to]||0)+1; });
+    const totalNodes = allNodes.length;
+    if(totalNodes > 120){
+      // cluster nodes with degree 1 or low degree into small clusters per their neighbor label prefix
+      const lowDeg = allNodes.filter(n=> (nodeDegree[n.id]||0) <= 1);
+      // cluster by connecting neighbor to reduce number of visible nodes
+      const groups = {};
+      lowDeg.forEach(n=>{
+        // pick neighbor or fallback to 'others'
+        const neigh = edges.get().find(e=> e.from === n.id || e.to === n.id);
+        const key = neigh ? (neigh.from === n.id ? neigh.to : neigh.from) : 'misc';
+        groups[key] = groups[key] || [];
+        groups[key].push(n.id);
+      });
+      Object.keys(groups).forEach((k, idx)=>{
+        const clusterNodes = groups[k];
+        if(clusterNodes.length <= 1) return;
+        try{
+          network.cluster({ joinCondition:function(childOptions){ return clusterNodes.indexOf(childOptions.id) !== -1; }, clusterNodeProperties: { id: 'cluster_' + idx + '_' + (k||'x'), label: `Cluster ${clusterNodes.length}`, borderWidth:2, color:{background:'#f0f2f5'}, font:{size:12} } });
+        }catch(e){/* clustering may fail sometimes */}
+      });
+    }
+  }catch(e){ console.warn('clustering failed', e); }
 
   // Setup UI toggles for pulse and flow
   try{
@@ -821,8 +979,9 @@ function setupNetwork(payload) {
       fetch(`/api/transactions?account=${encodeURIComponent(nodeId)}`).then(r=>{
         if(!r.ok) throw new Error('No transactions');
         return r.json();
-      }).then(rows=>{
+      }).then(data=>{
         if(!detailsEl) return;
+        const rows = Array.isArray(data) ? data : (Array.isArray(data.rows) ? data.rows : []);
         if(!rows || rows.length===0){
           detailsEl.innerHTML += '<div style="margin-top:8px;color:#666">No related transactions found.</div>';
           return;
@@ -837,6 +996,11 @@ function setupNetwork(payload) {
       }).catch(()=>{
         if(detailsEl) detailsEl.innerHTML += '<div style="margin-top:8px;color:#666">Could not load transactions.</div>';
       });
+      // Highlight sinks visually (pulse) for emphasis
+      try{
+        const sinks = findSinks(nodeId).filter(id=> id !== nodeId);
+        if(sinks && sinks.length) pulseNodes(sinks, 6000, 420);
+      }catch(e){}
     }catch(e){ console.warn('selectNode handler', e); }
   });
 
