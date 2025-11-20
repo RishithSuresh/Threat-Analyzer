@@ -31,6 +31,7 @@ async function loadTransactions(){
     const data = await res.json();
     populateTable(data);
     populateCharts(data);
+    populateAlerts(data);
   } catch(e){
     // fallback: fetch local CSV
     try{
@@ -38,7 +39,8 @@ async function loadTransactions(){
       const text = await csvRes.text();
       const rows = parseCSV(text);
       populateTable(rows);
-      populateCharts(rows);
+        populateCharts(rows);
+        populateAlerts(rows);
     } catch(err){
       console.warn('Failed to load transactions', err);
     }
@@ -91,13 +93,15 @@ function populateCharts(rows){
     const days = Object.keys(byDay).sort();
     const volumeSeries = days.map(d=> Math.round(byDay[d].volume));
     const avgRiskSeries = days.map(d=> Math.round(byDay[d].riskSum / Math.max(1, byDay[d].count)));
+    const txCountSeries = days.map(d=> byDay[d].count || 0);
 
     // Update line chart (volume + avg risk)
     if(window.lineChart){
       window.lineChart.data.labels = days;
-      if(window.lineChart.data.datasets && window.lineChart.data.datasets.length>=2){
+      if(window.lineChart.data.datasets && window.lineChart.data.datasets.length>=3){
         window.lineChart.data.datasets[0].data = volumeSeries;
         window.lineChart.data.datasets[1].data = avgRiskSeries;
+        window.lineChart.data.datasets[2].data = txCountSeries;
       }
       window.lineChart.update();
     }
@@ -115,6 +119,66 @@ function populateCharts(rows){
       window.barChart.update();
     }
   }catch(e){ console.warn('populateCharts failed', e); }
+}
+
+// Compute Recent Alerts from transaction rows and render into the Recent Alerts table
+function populateAlerts(rows){
+  try{
+    if(!Array.isArray(rows)) return;
+    // Heuristic: consider flagged transactions and high-risk transactions
+    const candidates = rows.map(r=>({
+      id: r.id || r.ID || '',
+      account: r.from_account || r.from || r.fromAccount || r.Account || r.account || '',
+      amount: Number(r.amount || r.Amount || 0) || 0,
+      risk: Number(r.risk || r.Risk || 0) || 0,
+      status: (r.status || r.Status || '').toString(),
+      raw: r
+    }));
+
+    // Prefer FLAGGED rows, then high risk, then by amount
+    candidates.sort((a,b)=>{
+      const aFlag = (a.status||'').toLowerCase().includes('flag') ? 1:0;
+      const bFlag = (b.status||'').toLowerCase().includes('flag') ? 1:0;
+      if(aFlag !== bFlag) return bFlag - aFlag;
+      if(a.risk !== b.risk) return b.risk - a.risk;
+      return b.amount - a.amount;
+    });
+
+    const top = candidates.slice(0,3);
+    const tbody = document.querySelector('.card table.table tbody');
+    if(!tbody) return;
+    // Clear existing rows in Recent Alerts tbody only (keep other tables intact)
+    // We select the Recent Alerts card specifically by matching header text
+    // Find the Recent Alerts card's tbody if possible
+    let alertsTbody = null;
+    document.querySelectorAll('.card').forEach(card=>{
+      const h3 = card.querySelector('h3');
+      if(h3 && h3.textContent && h3.textContent.trim().toLowerCase().includes('recent alerts')){
+        const tb = card.querySelector('table.table tbody');
+        if(tb) alertsTbody = tb;
+      }
+    });
+    if(!alertsTbody) alertsTbody = tbody;
+
+    alertsTbody.innerHTML = '';
+    top.forEach(item=>{
+      // Choose message heuristically
+      let message = 'Suspicious transaction';
+      if(item.risk >= 90) message = 'Rapid fund transfer across jurisdictions';
+      else if(item.amount >= 200000) message = 'Shell company payment detected';
+      else if(item.amount >= 80000) message = 'Multiple small transactions';
+
+      // Map severity
+      let severity = 'LOW';
+      if((item.status||'').toLowerCase().includes('flag') || item.risk >= 85) severity = 'HIGH';
+      else if(item.risk >= 70) severity = 'MED';
+
+      const color = severity === 'HIGH' ? '#ff6b6b' : severity === 'MED' ? '#ffa500' : '#4ade80';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${item.account}</td><td>${message}</td><td>$${Number(item.amount).toLocaleString()}</td><td style="color:${color}">${severity}</td>`;
+      alertsTbody.appendChild(tr);
+    });
+  }catch(e){ console.warn('populateAlerts failed', e); }
 }
 
 // Chart initialization
@@ -156,8 +220,43 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const lineCtx = document.getElementById('lineChart').getContext('2d');
   window.lineChart = new Chart(lineCtx,{
     type:'line',
-    data:{labels:[],datasets:[{label:'Volume',data:[],borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,0.08)',fill:true},{label:'Risk Score',data:[],borderColor:'#ff6b6b',backgroundColor:'rgba(255,107,107,0.06)',fill:true}]},
-    options:{responsive:true,plugins:{legend:{position:'top'}}}
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'Volume', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, yAxisID: 'y' },
+        { label: 'Risk Score', data: [], borderColor: '#ff6b6b', backgroundColor: 'rgba(255,107,107,0.06)', fill: false, yAxisID: 'y1', tension: 0.2, pointRadius:3 },
+        { label: 'Tx Count', data: [], borderColor: '#9b59b6', backgroundColor: 'rgba(155,89,182,0.06)', fill: false, yAxisID: 'y2', tension: 0.2, pointRadius:3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        y: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: 'Volume ($)' },
+          ticks: { callback: function(value){ return Number(value).toLocaleString(); } }
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: 'Risk Score' },
+          min: 0,
+          max: 100,
+          grid: { drawOnChartArea: false }
+        },
+        y2: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: 'Tx Count' },
+          grid: { drawOnChartArea: false },
+          ticks: { callback: function(v){ return v; } },
+          offset: true
+        }
+      }
+    }
   });
 
   const barCtx = document.getElementById('barChart').getContext('2d');
