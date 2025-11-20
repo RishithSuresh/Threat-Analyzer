@@ -67,11 +67,7 @@
           <div class="header"><h1>Transaction Monitoring System</h1><p>Real-time analysis of transactions</p></div>
           <div class="card" style="margin-top:12px">
             <h3>Transactions</h3>
-              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-                <input type="file" id="fileInput" accept=".csv" />
-                <button id="uploadBtn">Upload & Analyze</button>
-                <div id="uploadStatus" style="font-size:13px;color:#666"></div>
-              </div>
+              <!-- Upload UI removed per user request -->
               <table class="table" id="txTable">
               <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Risk</th><th>Status</th></tr></thead>
               <tbody></tbody>
@@ -79,16 +75,7 @@
               <div id="analysisResults" style="margin-top:12px">
                 <!-- Summary cards will be injected here by app.js -->
                 <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px" id="analysisSummary"></div>
-                <div style="display:flex;gap:12px;align-items:flex-start;margin-top:12px;flex-wrap:wrap">
-                  <div class="card" style="flex:1;min-width:220px">
-                    <h4>Risk Distribution</h4>
-                    <canvas id="riskPie" height="200"></canvas>
-                  </div>
-                  <div class="card" style="flex:1;min-width:220px">
-                    <h4>Summary Metrics</h4>
-                    <canvas id="volumeBar" height="200"></canvas>
-                  </div>
-                </div>
+                <!-- Graphs removed from Transaction Monitor per user request -->
               </div>
           </div>
         </section>

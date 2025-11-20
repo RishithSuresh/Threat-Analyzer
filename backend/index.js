@@ -42,6 +42,16 @@ if(fs.existsSync(currentDataPath)){
     parseCSVContent(content).then(rows=>{ currentRows = rows; }).catch(()=>{ currentRows = null; });
   }catch(e){ currentRows = null; }
 }
+else {
+  // If no current_dataset.csv, try to load a default demonstration CSV if present
+  const fallback = path.join(dataDir, 'detailed_transaction_data.csv');
+  if(fs.existsSync(fallback)){
+    try{
+      const content = fs.readFileSync(fallback, 'utf8');
+      parseCSVContent(content).then(rows=>{ currentRows = rows; console.log('Loaded fallback dataset from detailed_transaction_data.csv'); }).catch(()=>{ currentRows = null; });
+    }catch(e){ currentRows = null; }
+  }
+}
 
 // API: transactions - return current rows (uploaded) or error if none
 app.get('/api/transactions', async (req, res) => {

@@ -54,6 +54,68 @@ function populateTable(data){
   });
 }
 
+// Build and update dashboard charts from transaction rows
+function populateCharts(rows){
+  try{
+    if(!Array.isArray(rows)) return;
+
+    // Aggregate by day (attempt to parse common date formats)
+    const byDay = {};
+    rows.forEach(r=>{
+      const rawDate = r.date || r.Date || '';
+      let d = null;
+      if(rawDate){
+        // Try ISO parse first
+        const t = new Date(rawDate);
+        if(!isNaN(t)) d = t;
+        else {
+          // try dd/mm/yyyy or dd/mm/yyyy hh:mm
+          const parts = rawDate.split(' ')[0].split('/');
+          if(parts.length===3){
+            const iso = `${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+            const tt = new Date(iso);
+            if(!isNaN(tt)) d = tt;
+          }
+        }
+      }
+      const day = d && !isNaN(d) ? d.toISOString().slice(0,10) : 'unknown';
+      if(!byDay[day]) byDay[day] = { volume:0, riskSum:0, count:0 };
+      const amt = Number(r.amount || r.Amount || 0) || 0;
+      const risk = Number(r.risk || r.Risk || 0) || 0;
+      byDay[day].volume += amt;
+      byDay[day].riskSum += risk;
+      byDay[day].count += 1;
+    });
+
+    const days = Object.keys(byDay).sort();
+    const volumeSeries = days.map(d=> Math.round(byDay[d].volume));
+    const avgRiskSeries = days.map(d=> Math.round(byDay[d].riskSum / Math.max(1, byDay[d].count)));
+
+    // Update line chart (volume + avg risk)
+    if(window.lineChart){
+      window.lineChart.data.labels = days;
+      if(window.lineChart.data.datasets && window.lineChart.data.datasets.length>=2){
+        window.lineChart.data.datasets[0].data = volumeSeries;
+        window.lineChart.data.datasets[1].data = avgRiskSeries;
+      }
+      window.lineChart.update();
+    }
+
+    // Update status counts in small bar chart
+    const counts = { normal:0, flagged:0, other:0 };
+    rows.forEach(r=>{
+      const s = (r.status || r.Status || '').toString().toLowerCase();
+      if(s.includes('flag')) counts.flagged++;
+      else if(s.includes('normal')) counts.normal++;
+      else counts.other++;
+    });
+    if(window.barChart){
+      window.barChart.data.datasets[0].data = [counts.normal, counts.flagged, counts.other];
+      window.barChart.update();
+    }
+  }catch(e){ console.warn('populateCharts failed', e); }
+}
+
 // Chart initialization
 document.addEventListener('DOMContentLoaded', ()=>{
   const lineCtx = document.getElementById('lineChart').getContext('2d');
@@ -64,7 +126,29 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
 
   const barCtx = document.getElementById('barChart').getContext('2d');
-  window.barChart = new Chart(barCtx,{type:'bar',data:{labels:['Personal','Corporate','Shell Co.'],datasets:[{label:'Count',data:[0,0,0],backgroundColor:['#ff6b6b','#ffa500','#4ade80']}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+  window.barChart = new Chart(barCtx,{type:'bar',data:{labels:['Normal','Flagged','Other'],datasets:[{label:'Count',data:[0,0,0],backgroundColor:['#3498db','#ff6b6b','#9b59b6']}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+
+  // Ensure dashboard canvases exist and initialize pie/bar charts for summary
+  const dashboardGraphsContainer = document.getElementById('dashboardGraphs');
+  if(dashboardGraphsContainer){
+    if(!document.getElementById('riskPie')){
+      const riskPieEl = document.createElement('canvas');
+      riskPieEl.id = 'riskPie'; riskPieEl.height = 200; dashboardGraphsContainer.appendChild(riskPieEl);
+    }
+    if(!document.getElementById('volumeBar')){
+      const volumeBarEl = document.createElement('canvas');
+      volumeBarEl.id = 'volumeBar'; volumeBarEl.height = 200; dashboardGraphsContainer.appendChild(volumeBarEl);
+    }
+
+    try{
+      const pieCtxDashboard = document.getElementById('riskPie').getContext('2d');
+      window.riskPieChart = new Chart(pieCtxDashboard, { type: 'doughnut', data: { labels: ['Low','Medium','High'], datasets: [{ data: [0,0,0], backgroundColor: ['#4ade80','#ffa500','#ff6b6b'] }] }, options: { responsive:true, plugins:{legend:{position:'bottom'}} } });
+    }catch(e){ console.warn('Could not init riskPieChart', e); }
+    try{
+      const volCtx = document.getElementById('volumeBar').getContext('2d');
+      window.volumeBarChart = new Chart(volCtx, { type: 'bar', data: { labels: ['Total Tx','Total Volume (K)','Avg Risk'], datasets: [{ label:'Value', data:[0,0,0], backgroundColor:['#3498db','#9b59b6','#ff6b6b'] }] }, options: { responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} } });
+    }catch(e){ console.warn('Could not init volumeBarChart', e); }
+  }
 
   loadTransactions();
 
@@ -73,79 +157,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     // fallback: build simple static network from hardcoded sample
     console.warn('network API failed', err);
   });
-  // wire upload UI
-  const fileInput = document.getElementById('fileInput');
-  const uploadBtn = document.getElementById('uploadBtn');
-  const uploadStatus = document.getElementById('uploadStatus');
-  uploadBtn.addEventListener('click', async ()=>{
-    if(!fileInput.files || fileInput.files.length===0){ uploadStatus.textContent = 'Choose a CSV file first'; return; }
-    const f = fileInput.files[0];
-    uploadStatus.textContent = 'Uploading...';
-    const fd = new FormData(); fd.append('file', f);
-    try{
-      const res = await fetch('/api/upload',{ method: 'POST', body: fd });
-      if(!res.ok) throw new Error('Upload failed');
-      const payload = await res.json();
-      uploadStatus.textContent = 'Analysis complete';
-      if(payload.rows) populateTable(payload.rows);
-      if(payload.analysis){
-        const summaryEl = document.getElementById('analysisSummary');
-        summaryEl.innerHTML = `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
-          <div class="card"><strong>Total Tx</strong><div>${payload.analysis.totalTransactions}</div></div>
-          <div class="card"><strong>Total Volume</strong><div>$${Number(payload.analysis.totalVolume).toLocaleString()}</div></div>
-          <div class="card"><strong>Avg Risk</strong><div>${payload.analysis.avgRisk}</div></div>
-          <div class="card"><strong>Risk (H/M/L)</strong><div>${payload.analysis.riskCounts.high}/${payload.analysis.riskCounts.medium}/${payload.analysis.riskCounts.low}</div></div>
-        </div>`;
-
-        // Update / create Risk Distribution pie chart
-        try{
-          const riskCounts = payload.analysis.riskCounts || {low:0,medium:0,high:0};
-          const pieEl = document.getElementById('riskPie');
-          if(pieEl){
-            const pieCtx = pieEl.getContext('2d');
-            const pieData = [riskCounts.low, riskCounts.medium, riskCounts.high];
-            if(window.riskPieChart){
-              window.riskPieChart.data.datasets[0].data = pieData;
-              window.riskPieChart.update();
-            } else {
-              window.riskPieChart = new Chart(pieCtx,{
-                type: 'doughnut',
-                data: { labels: ['Low','Medium','High'], datasets: [{ data: pieData, backgroundColor: ['#4ade80','#ffa500','#ff6b6b'] }] },
-                options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-              });
-            }
-          }
-        }catch(e){ console.warn('pie chart error', e); }
-
-        // Update / create Summary bar chart (Total Tx, Total Volume (K), Avg Risk)
-        try{
-          const totalTx = Number(payload.analysis.totalTransactions) || 0;
-          const totalVolK = Math.round((Number(payload.analysis.totalVolume) || 0) / 1000);
-          const avgRisk = Number(payload.analysis.avgRisk) || 0;
-          const barEl2 = document.getElementById('volumeBar');
-          if(barEl2){
-            const bctx = barEl2.getContext('2d');
-            const barData = [totalTx, totalVolK, avgRisk];
-            if(window.volumeBarChart){
-              window.volumeBarChart.data.datasets[0].data = barData;
-              window.volumeBarChart.update();
-            } else {
-              window.volumeBarChart = new Chart(bctx,{
-                type:'bar',
-                data: { labels: ['Total Tx','Total Volume (K)','Avg Risk'], datasets: [{ label: 'Value', data: barData, backgroundColor: ['#3498db','#9b59b6','#ff6b6b'] }] },
-                options: { responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
-              });
-            }
-          }
-        }catch(e){ console.warn('bar chart error', e); }
-      }
-      if(payload.nodes && payload.edges) setupNetwork({ nodes: payload.nodes, edges: payload.edges });
-      // refresh other views/metrics
-      fetchSummary();
-      fetchRiskProfiles();
-      fetchPatterns();
-    }catch(err){ uploadStatus.textContent = 'Upload failed'; console.error(err); }
-  });
+  // Upload UI removed per user request (file input and upload button removed from Transactions view)
 });
 
 // Fetch dashboard summary and update UI
@@ -205,12 +217,65 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if(active) refreshView(active.dataset.view);
 });
 
-function setupNetwork(payload){
+// Adjusting the spider map layout to reduce overlap
+function setupNetwork(payload) {
   const nodes = new vis.DataSet(payload.nodes || []);
   const edges = new vis.DataSet(payload.edges || []);
   const container = document.getElementById('networkViz');
-  const data = {nodes, edges};
-  const options = {nodes:{shape:'dot',scaling:{min:12,max:48},font:{size:14}},edges:{smooth:{enabled:true}},physics:{enabled:false}};
+  const data = { nodes, edges };
+  const options = {
+    nodes: {
+      shape: 'dot',
+      scaling: { min: 12, max: 48 },
+      font: { size: 14 },
+      borderWidth: 2,
+    },
+    edges: {
+      smooth: {
+        enabled: true,
+        type: 'dynamic',
+      },
+    },
+    physics: {
+      enabled: true,
+      barnesHut: {
+        gravitationalConstant: -20000,
+        centralGravity: 0.3,
+        springLength: 150,
+        springConstant: 0.05,
+        damping: 0.09,
+        avoidOverlap: 0.5,
+      },
+      stabilization: {
+        iterations: 200,
+        fit: true,
+      },
+    },
+    layout: {
+      improvedLayout: true,
+      hierarchical: {
+        enabled: false,
+      },
+    },
+    interaction: {
+      hover: true,
+      multiselect: true,
+      dragNodes: true,
+      dragView: true,
+      zoomView: true,
+    },
+  };
   const network = new vis.Network(container, data, options);
-  network.fit({animation:{duration:400}});
+  network.fit({ animation: { duration: 500 } });
+
+  // Event listeners for node interactions
+  network.on('selectNode', (params) => {
+    console.log('Node selected:', params);
+  });
+
+  network.on('deselectNode', (params) => {
+    console.log('Node deselected:', params);
+  });
 }
+
+// (dashboard graphs are managed during initialization and on upload)
