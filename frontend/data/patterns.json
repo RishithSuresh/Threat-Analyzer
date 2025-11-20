@@ -1,0 +1,42 @@
+[
+  {
+    "id": "P-001",
+    "name": "Rapid Chain Transfers",
+    "severity": "HIGH",
+    "confidence": 92,
+    "accounts": ["ACC1373","ACC2829","ACC2048"],
+    "description": "Multiple rapid transfers across accounts forming a short chain indicating layering."
+  },
+  {
+    "id": "P-002",
+    "name": "Structuring / Smurfing",
+    "severity": "MED",
+    "confidence": 78,
+    "accounts": ["ACC1525","ACC2535"],
+    "description": "High count of small deposits below reporting threshold from one source."
+  },
+  {
+    "id": "P-003",
+    "name": "Shell Company Payment",
+    "severity": "HIGH",
+    "confidence": 88,
+    "accounts": ["ACC-2024-042"],
+    "description": "Large payment to a newly created counterparty with minimal transaction history."
+  },
+  {
+    "id": "P-004",
+    "name": "Circular Flow",
+    "severity": "HIGH",
+    "confidence": 85,
+    "accounts": ["ACC1204","ACC2322","ACC1204"],
+    "description": "Funds returned to origin through intermediate accounts, indicating possible layering."
+  },
+  {
+    "id": "P-005",
+    "name": "Multiple Small Outflows",
+    "severity": "MED",
+    "confidence": 72,
+    "accounts": ["ACC-2024-015"],
+    "description": "Many small outgoing payments from a single account in short time window."
+  }
+]

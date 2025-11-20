@@ -331,15 +331,97 @@ async function fetchPatterns(){
   try{
     const res = await fetch('/api/patterns');
     if(!res.ok) throw new Error('No dataset');
-    const patterns = await res.json();
+    let patterns = await res.json();
+    // If API returned an empty array, fall back to local sample patterns
+    if(!patterns || (Array.isArray(patterns) && patterns.length === 0)){
+      try{
+        const rlocal = await fetch('/data/patterns.json');
+        if(rlocal.ok) patterns = await rlocal.json();
+      }catch(e){ /* ignore and continue with empty */ }
+    }
     const tbody = document.getElementById('patternsBody');
     tbody.innerHTML = '';
     patterns.forEach(p=>{
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${p.id||''}</td><td>${p.name||''}${p.account?(' — '+p.account):''}${p.accounts?(' — '+p.accounts.join(',')):''}</td><td style="color:${p.severity==='HIGH'||p.severity==='CRITICAL'?'#ff3333':p.severity==='MED'?'#ff6b6b':'#ffa500'}">${p.severity||'MED'}</td><td>${p.confidence?p.confidence+'%':''}</td>`;
+      const accountsPart = p.accounts ? (' — ' + p.accounts.join(',')) : (p.account ? (' — ' + p.account) : '');
+      const accountsData = p.accounts ? JSON.stringify(p.accounts) : JSON.stringify([]);
+      tr.innerHTML = `<td>${p.id||''}</td><td>${p.name||''}${accountsPart}</td><td style="color:${p.severity==='HIGH'||p.severity==='CRITICAL'?'#ff3333':p.severity==='MED'?'#ff6b6b':'#ffa500'}">${p.severity||'MED'}</td><td>${p.confidence?p.confidence+'%':''}</td><td><button class="pattern-highlight" data-accounts='${accountsData}'>Highlight</button></td>`;
       tbody.appendChild(tr);
     });
-  }catch(e){ console.warn('patterns', e); }
+    // attach handlers for highlight buttons
+    document.querySelectorAll('.pattern-highlight').forEach(b=>{
+      b.addEventListener('click', (ev)=>{
+        const acc = ev.currentTarget.getAttribute('data-accounts');
+        let accounts = [];
+        try{ accounts = JSON.parse(acc||'[]'); }catch(e){ accounts = []; }
+        highlightAccountsInNetwork(accounts);
+      });
+    });
+  }catch(e){
+    console.warn('patterns API failed, falling back to local patterns.json', e);
+    try{
+      const r = await fetch('/data/patterns.json');
+      if(!r.ok) throw new Error('local patterns not found');
+      const patterns = await r.json();
+      const tbody = document.getElementById('patternsBody');
+      tbody.innerHTML = '';
+      patterns.forEach(p=>{
+        const tr = document.createElement('tr');
+        const accountsPart = p.accounts ? (' — ' + p.accounts.join(',')) : (p.account ? (' — ' + p.account) : '');
+        const accountsData = p.accounts ? JSON.stringify(p.accounts) : JSON.stringify([]);
+        tr.innerHTML = `<td>${p.id||''}</td><td>${p.name||''}${accountsPart}</td><td style="color:${p.severity==='HIGH'||p.severity==='CRITICAL'?'#ff3333':p.severity==='MED'?'#ff6b6b':'#ffa500'}">${p.severity||'MED'}</td><td>${p.confidence?p.confidence+'%':''}</td><td><button class="pattern-highlight" data-accounts='${accountsData}'>Highlight</button></td>`;
+        tbody.appendChild(tr);
+      });
+      document.querySelectorAll('.pattern-highlight').forEach(b=>{
+        b.addEventListener('click', (ev)=>{
+          const acc = ev.currentTarget.getAttribute('data-accounts');
+          let accounts = [];
+          try{ accounts = JSON.parse(acc||'[]'); }catch(e){ accounts = []; }
+          highlightAccountsInNetwork(accounts);
+        });
+      });
+    }catch(err){ console.warn('patterns fallback failed', err); }
+  }
+}
+
+// Highlight a list of account IDs/names in the network visualization
+function highlightAccountsInNetwork(accounts){
+  try{
+    if(!accounts || !Array.isArray(accounts) || accounts.length===0) return;
+    if(!window.network || !window.networkNodes) {
+      console.warn('Network not initialized yet');
+      return;
+    }
+    const allNodes = window.networkNodes.get();
+    const idsToSelect = [];
+    accounts.forEach(a=>{
+      if(!a) return;
+      // try exact id
+      const byId = window.networkNodes.get(a);
+      if(byId) { idsToSelect.push(byId.id || a); return; }
+      // otherwise search label/title
+      const match = allNodes.find(n => String(n.label) === String(a) || String(n.title) === String(a));
+      if(match) idsToSelect.push(match.id);
+    });
+    if(idsToSelect.length===0){ console.warn('No matching nodes found for accounts', accounts); return; }
+    // visually select and focus
+    window.network.selectNodes(idsToSelect);
+    window.network.focus(idsToSelect[0], { scale: 1.2, animation: { duration: 400 } });
+    setTimeout(()=> window.network.fit({ nodes: idsToSelect, animation: { duration: 400 } }), 450);
+
+    // temporarily highlight nodes by changing background
+    const originalStates = {};
+    idsToSelect.forEach(id=>{
+      const n = window.networkNodes.get(id);
+      if(n){ originalStates[id] = n.color; window.networkNodes.update(Object.assign({}, n, { color: { background: '#ffd54f' } })); }
+    });
+    setTimeout(()=>{
+      idsToSelect.forEach(id=>{
+        const n = window.networkNodes.get(id);
+        if(n){ const updated = Object.assign({}, n); delete updated.color; window.networkNodes.update(updated); }
+      });
+    }, 3000);
+  }catch(e){ console.warn('highlightAccountsInNetwork error', e); }
 }
 
 // (removed duplicate nav handler)
@@ -349,6 +431,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // refresh current active view
   const active = document.querySelector('.nav button.active');
   if(active) refreshView(active.dataset.view);
+  // always attempt to load patterns so the Patterns table is populated
+  try{ fetchPatterns().catch(()=>{}); }catch(e){}
 });
 
 // Adjusting the spider map layout to reduce overlap
@@ -405,6 +489,10 @@ function setupNetwork(payload) {
     },
   };
   const network = new vis.Network(container, data, options);
+  // expose network and datasets globally for other UI interop
+  window.network = network;
+  window.networkNodes = nodes;
+  window.networkEdges = edges;
   network.fit({ animation: { duration: 500 } });
 
   // Enhance edges to show direction and amounts when available
