@@ -13,6 +13,20 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+// Simple in-memory cache to avoid recomputing expensive endpoints too often
+const simpleCache = {
+  store: new Map(),
+  get(key){
+    const it = this.store.get(key);
+    if(!it) return null;
+    if(Date.now() > it.expires) { this.store.delete(key); return null; }
+    return it.value;
+  },
+  set(key, value, ttlMs=30000){ // default 30s
+    this.store.set(key, { value, expires: Date.now() + ttlMs });
+  }
+};
+
 // Serve frontend static files from ../frontend
 const frontendPath = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendPath));
@@ -74,6 +88,9 @@ app.get('/api/transactions', async (req, res) => {
 // API: network - build simple network nodes/edges from transactions
 app.get('/api/network', (req, res) => {
   try{
+    const cached = simpleCache.get('network');
+    if(cached) return res.json(cached);
+
     const data = currentRows;
     if(!data || !Array.isArray(data)) return res.status(404).json({ error: 'No dataset uploaded' });
     const accounts = new Map();
@@ -121,7 +138,9 @@ app.get('/api/network', (req, res) => {
       return { id: a.id, label: a.label, value: a.value, group: a.group, txCount: a.txCount, totalAmount: a.totalAmount, avgRisk, ips, title };
     });
 
-    res.json({ nodes, edges });
+    const payload = { nodes, edges };
+    simpleCache.set('network', payload, 30 * 1000);
+    res.json(payload);
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
 
@@ -217,6 +236,9 @@ app.get('/api/summary', (req, res)=>{
 // API: risk profiles per account
 app.get('/api/risk-profiles', (req, res)=>{
   try{
+    const cached = simpleCache.get('riskProfiles');
+    if(cached) return res.json(cached);
+
     const data = currentRows;
     if(!data) return res.status(404).json({ error: 'No dataset uploaded' });
     const byAccount = new Map();
@@ -239,6 +261,7 @@ app.get('/api/risk-profiles', (req, res)=>{
     });
     const profiles = Array.from(byAccount.values()).map(p=>({ account: p.account, txCount: p.txCount, totalVolume: p.totalVolume, avgRisk: Math.round(p.riskSum / p.txCount), lastTx: p.lastTx ? p.lastTx.toISOString() : null, flaggedCount: p.flaggedCount || 0, recentAmounts: p.recentAmounts || [] }));
     profiles.sort((a,b)=>b.totalVolume - a.totalVolume);
+    simpleCache.set('riskProfiles', profiles, 30 * 1000);
     res.json(profiles);
   }catch(err){ res.status(500).json({ error: err.message }); }
 });
@@ -275,6 +298,41 @@ app.get('/api/patterns', (req, res)=>{
 // Fallback route - serve index.html for SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// Export endpoints (CSV)
+function toCsv(rows, header){
+  const esc = (s='') => '"' + (''+s).replace(/"/g,'""') + '"';
+  const lines = [header.map(esc).join(',')];
+  rows.forEach(r=>{
+    const row = header.map(h=> esc(r[h]!==undefined ? r[h] : ''));
+    lines.push(row.join(','));
+  });
+  return lines.join('\n');
+}
+
+app.get('/api/export/risk-profiles', (req, res)=>{
+  try{
+    const cached = simpleCache.get('riskProfiles') || [];
+    const rows = (cached || []).map(p=>({ account: p.account, txCount: p.txCount, totalVolume: p.totalVolume, avgRisk: p.avgRisk, lastTx: p.lastTx || '', flaggedCount: p.flaggedCount || 0 }));
+    const csv = toCsv(rows, ['account','txCount','totalVolume','avgRisk','lastTx','flaggedCount']);
+    res.setHeader('Content-Type','text/csv');
+    res.setHeader('Content-Disposition','attachment; filename="risk_profiles.csv"');
+    res.send(csv);
+  }catch(err){ res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/export/transactions', (req, res)=>{
+  try{
+    const account = req.query.account;
+    const data = currentRows || [];
+    const rows = account ? data.filter(r=> (r.from_account||r.from||'')===account || (r.to_account||r.to||'')===account) : data;
+    const csvRows = rows.map(r=>({ id: r.id||r.transaction_id||'', date: r.date||r.timestamp||'', from_account: r.from_account||r.from||'', to_account: r.to_account||r.to||'', amount: r.amount||r.Amount||'', risk: r.risk||r.Risk||'', status: r.status||'' }));
+    const csv = toCsv(csvRows, ['id','date','from_account','to_account','amount','risk','status']);
+    res.setHeader('Content-Type','text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="transactions${account?'-'+account:''}.csv"`);
+    res.send(csv);
+  }catch(err){ res.status(500).json({ error: err.message }); }
 });
 
 app.listen(PORT, ()=>console.log(`Backend server listening on http://localhost:${PORT}`));

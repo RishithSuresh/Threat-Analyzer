@@ -407,7 +407,27 @@ async function fetchRiskProfiles(){
 
     // initial page render
     renderPage(true);
+    // export handler
+    try{
+      const expBtn = document.getElementById('exportRiskBtn');
+      if(expBtn){
+        expBtn.addEventListener('click', ()=>{
+          downloadCSV('/api/export/risk-profiles', 'risk_profiles.csv');
+        });
+      }
+    }catch(e){/* ignore */}
   }catch(e){ console.warn('risk profiles', e); }
+}
+
+// Helper to fetch CSV and trigger download
+function downloadCSV(url, filename){
+  fetch(url).then(r=>{
+    if(!r.ok) throw new Error('Failed to download');
+    return r.blob();
+  }).then(blob=>{
+    const urlObj = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = urlObj; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(urlObj);
+  }).catch(err=>{ console.warn('Download failed', err); alert('Download failed: '+err.message); });
 }
 
 // Fetch patterns and render table
