@@ -369,6 +369,11 @@ function setupNetwork(payload) {
         enabled: true,
         type: 'dynamic',
       },
+      arrows: {
+        to: { enabled: true, scaleFactor: 1, type: 'arrow' }
+      },
+      color: { color: '#999', highlight: '#555', hover: '#555', inherit: false },
+      width: 1,
     },
     physics: {
       enabled: true,
@@ -401,6 +406,21 @@ function setupNetwork(payload) {
   };
   const network = new vis.Network(container, data, options);
   network.fit({ animation: { duration: 500 } });
+
+  // Enhance edges to show direction and amounts when available
+  try{
+    // Iterate current edges and update visual properties
+    edges.forEach(edge => {
+      try{
+        const amt = Number(edge.amount || edge.value || edge.weight || 0) || 0;
+        const width = amt ? Math.min(8, Math.max(1, Math.round(Math.log10(amt + 1)))) : (edge.width || 1);
+        const label = amt ? `$${Number(amt).toLocaleString()}` : (edge.label || '');
+        const title = amt ? `Amount: $${Number(amt).toLocaleString()}` : (edge.title || '');
+        const eid = edge.id || `${edge.from}->${edge.to}`;
+        edges.update(Object.assign({}, edge, { id: eid, arrows: 'to', width: width, label: label, title: title }));
+      }catch(e){/* ignore edge-specific errors */}
+    });
+  }catch(e){ console.warn('edge enhancement failed', e); }
 
   // Event listeners for node interactions
   const detailsEl = document.getElementById('nodeDetailsContent');
