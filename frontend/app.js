@@ -29,6 +29,11 @@ function parseCSV(text){
   return rows;
 }
 
+// If true, the static HTML Recent Alerts section is authoritative
+// and runtime scripts should not overwrite it. Set to `false` to
+// re-enable programmatic alerts rendering from CSV/API.
+window.useStaticAlerts = true;
+
 // When view changes, refresh data for that view
 function refreshView(view){
   if(view === 'dashboard') fetchSummary();
@@ -40,7 +45,6 @@ function refreshView(view){
 
 // Load transactions from API (with pagination) and fallback to local CSV when API unavailable
 async function loadTransactions(page = 1, pageSize = 100){
-  const tbody = document.querySelector('#txTable tbody');
   try{
     const res = await fetch(`/api/transactions?page=${page}&pageSize=${pageSize}`);
     if(!res.ok) throw new Error('API fetch failed');
@@ -174,6 +178,11 @@ function populateCharts(rows){
 // Compute Recent Alerts from transaction rows and render into the Recent Alerts table
 function populateAlerts(rows){
   try{
+    if(window.useStaticAlerts){
+      // Respect static HTML content for Recent Alerts — do not overwrite
+      console.log('Static alerts enabled; skipping populateAlerts');
+      return;
+    }
     if(!Array.isArray(rows)) return;
     // Heuristic: consider flagged transactions and high-risk transactions
     const candidates = rows.map(r=>({
@@ -234,6 +243,11 @@ function populateAlerts(rows){
 // Server-side alerts fetch and render into the Recent Alerts card
 async function fetchAlerts(){
   try{
+    if(window.useStaticAlerts){
+      // Respect static HTML content for Recent Alerts — do not overwrite
+      console.log('Static alerts enabled; skipping fetchAlerts');
+      return;
+    }
     const res = await fetch('/api/alerts');
     if(!res.ok) throw new Error('No alerts');
     const alerts = await res.json();
@@ -302,50 +316,67 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   }catch(e){ console.warn('nav binding failed', e); }
 
-  const lineCtx = document.getElementById('lineChart').getContext('2d');
-  window.lineChart = new Chart(lineCtx,{
-    type:'line',
-    data: {
-      labels: [],
-      datasets: [
-        { label: 'Volume', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, yAxisID: 'y' },
-        { label: 'Risk Score', data: [], borderColor: '#ff6b6b', backgroundColor: 'rgba(255,107,107,0.06)', fill: false, yAxisID: 'y1', tension: 0.2, pointRadius:3 },
-        { label: 'Tx Count', data: [], borderColor: '#9b59b6', backgroundColor: 'rgba(155,89,182,0.06)', fill: false, yAxisID: 'y2', tension: 0.2, pointRadius:3 }
-      ]
-    },
-    options: {
-      responsive: true,
-      interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { position: 'top' } },
-      scales: {
-        y: {
-          type: 'linear',
-          position: 'left',
-          title: { display: true, text: 'Volume ($)' },
-          ticks: { callback: function(value){ return Number(value).toLocaleString(); } }
+  const ChartLib = window && window['Chart'];
+  if(!ChartLib){
+    console.warn('Chart.js not loaded; skipping chart initialization');
+    window.lineChart = null;
+    window.barChart = null;
+  } else {
+    const lineEl = document.getElementById('lineChart');
+    if(lineEl && lineEl.getContext){
+      const lineCtx = lineEl.getContext('2d');
+      window.lineChart = new ChartLib(lineCtx,{
+        type:'line',
+        data: {
+          labels: [],
+          datasets: [
+            { label: 'Volume', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, yAxisID: 'y' },
+            { label: 'Risk Score', data: [], borderColor: '#ff6b6b', backgroundColor: 'rgba(255,107,107,0.06)', fill: false, yAxisID: 'y1', tension: 0.2, pointRadius:3 },
+            { label: 'Tx Count', data: [], borderColor: '#9b59b6', backgroundColor: 'rgba(155,89,182,0.06)', fill: false, yAxisID: 'y2', tension: 0.2, pointRadius:3 }
+          ]
         },
-        y1: {
-          type: 'linear',
-          position: 'right',
-          title: { display: true, text: 'Risk Score' },
-          min: 0,
-          max: 100,
-          grid: { drawOnChartArea: false }
-        },
-        y2: {
-          type: 'linear',
-          position: 'right',
-          title: { display: true, text: 'Tx Count' },
-          grid: { drawOnChartArea: false },
-          ticks: { callback: function(v){ return v; } },
-          offset: true
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'top' } },
+          scales: {
+            y: {
+              type: 'linear',
+              position: 'left',
+              title: { display: true, text: 'Volume ($)' },
+              ticks: { callback: function(value){ return Number(value).toLocaleString(); } }
+            },
+            y1: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: 'Risk Score' },
+              min: 0,
+              max: 100,
+              grid: { drawOnChartArea: false }
+            },
+            y2: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: 'Tx Count' },
+              grid: { drawOnChartArea: false },
+              ticks: { callback: function(v){ return v; } },
+              offset: true
+            }
+          }
         }
-      }
+      });
+    } else {
+      window.lineChart = null;
     }
-  });
 
-  const barCtx = document.getElementById('barChart').getContext('2d');
-  window.barChart = new Chart(barCtx,{type:'bar',data:{labels:['Normal','Flagged','Other'],datasets:[{label:'Count',data:[0,0,0],backgroundColor:['#3498db','#ff6b6b','#9b59b6']}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+    const barEl = document.getElementById('barChart');
+    if(barEl && barEl.getContext){
+      const barCtx = barEl.getContext('2d');
+      window.barChart = new ChartLib(barCtx,{type:'bar',data:{labels:['Normal','Flagged','Other'],datasets:[{label:'Count',data:[0,0,0],backgroundColor:['#3498db','#ff6b6b','#9b59b6']}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+    } else {
+      window.barChart = null;
+    }
+  }
 
   // Ensure dashboard canvases exist and initialize pie/bar charts for summary
   const dashboardGraphsContainer = document.getElementById('dashboardGraphs');
@@ -360,12 +391,20 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
 
     try{
-      const pieCtxDashboard = document.getElementById('riskPie').getContext('2d');
-      window.riskPieChart = new Chart(pieCtxDashboard, { type: 'doughnut', data: { labels: ['Low','Medium','High'], datasets: [{ data: [0,0,0], backgroundColor: ['#4ade80','#ffa500','#ff6b6b'] }] }, options: { responsive:true, plugins:{legend:{position:'bottom'}} } });
+      if(ChartLib){
+        const pieCtxDashboard = document.getElementById('riskPie').getContext('2d');
+        window.riskPieChart = new ChartLib(pieCtxDashboard, { type: 'doughnut', data: { labels: ['Low','Medium','High'], datasets: [{ data: [0,0,0], backgroundColor: ['#4ade80','#ffa500','#ff6b6b'] }] }, options: { responsive:true, plugins:{legend:{position:'bottom'}} } });
+      } else {
+        window.riskPieChart = null;
+      }
     }catch(e){ console.warn('Could not init riskPieChart', e); }
     try{
-      const volCtx = document.getElementById('volumeBar').getContext('2d');
-      window.volumeBarChart = new Chart(volCtx, { type: 'bar', data: { labels: ['Total Tx','Total Volume (K)','Avg Risk'], datasets: [{ label:'Value', data:[0,0,0], backgroundColor:['#3498db','#9b59b6','#ff6b6b'] }] }, options: { responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} } });
+      if(ChartLib){
+        const volCtx = document.getElementById('volumeBar').getContext('2d');
+        window.volumeBarChart = new ChartLib(volCtx, { type: 'bar', data: { labels: ['Total Tx','Total Volume (K)','Avg Risk'], datasets: [{ label:'Value', data:[0,0,0], backgroundColor:['#3498db','#9b59b6','#ff6b6b'] }] }, options: { responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} } });
+      } else {
+        window.volumeBarChart = null;
+      }
     }catch(e){ console.warn('Could not init volumeBarChart', e); }
   }
 
@@ -751,6 +790,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
 // Adjusting the spider map layout to reduce overlap
 function setupNetwork(payload) {
+  const visLib = window && window['vis'];
+  if(!visLib){ console.warn('vis-network library not loaded; skipping network setup'); return; }
   // Include first IP in the visible node label when available
   function extractIpsFromHtml(html){
     try{
@@ -780,8 +821,8 @@ function setupNetwork(payload) {
       return copy;
     }catch(e){ return n; }
   });
-  const nodes = new vis.DataSet(nodeList);
-  const edges = new vis.DataSet(payload.edges || []);
+  const nodes = new visLib.DataSet(nodeList);
+  const edges = new visLib.DataSet(payload.edges || []);
   const container = document.getElementById('networkViz');
   const data = { nodes, edges };
   const options = {
@@ -833,7 +874,7 @@ function setupNetwork(payload) {
       zoomView: true,
     },
   };
-  const network = new vis.Network(container, data, options);
+  const network = new visLib.Network(container, data, options);
   // expose network and datasets globally for other UI interop
   window.network = network;
   window.networkNodes = nodes;
